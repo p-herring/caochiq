@@ -20,11 +20,15 @@ function complianceBg(pct: number) {
 export default function AthletesPage(): React.JSX.Element {
   const [athletes, setAthletes] = useState<AthleteWithProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
-    api.athletes.list().then(setAthletes).finally(() => setLoading(false));
+    api.athletes.list()
+      .then(setAthletes)
+      .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load athletes"))
+      .finally(() => setLoading(false));
   }, []);
 
   const filtered = athletes.filter((a) =>
@@ -113,6 +117,11 @@ export default function AthletesPage(): React.JSX.Element {
       {/* Table */}
       {loading ? (
         <LoadingSkeleton />
+      ) : loadError ? (
+        <div className="rounded-lg px-8 py-12 text-center" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <p className="text-[13px] font-semibold mb-1" style={{ color: "var(--red)" }}>Failed to load athletes</p>
+          <p className="text-[11px] font-mono" style={{ color: "var(--text-3)" }}>{loadError}</p>
+        </div>
       ) : athletes.length === 0 ? (
         <EmptyState />
       ) : filtered.length === 0 ? (
