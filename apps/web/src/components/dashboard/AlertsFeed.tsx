@@ -18,6 +18,7 @@ const TYPE_LABEL: Record<string, string> = {
 export default function AlertsFeed(): React.JSX.Element {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     api.insights.list().then(setInsights).finally(() => setLoading(false));
@@ -28,20 +29,44 @@ export default function AlertsFeed(): React.JSX.Element {
     api.insights.dismiss(id);
   }
 
+  async function handleGenerate() {
+    setGenerating(true);
+    try {
+      await api.insights.generate();
+      const fresh = await api.insights.list();
+      setInsights(fresh);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   return (
     <div>
-      <div className="flex items-center gap-2 mb-3">
-        <h2 className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "var(--t3)" }}>
-          Alerts
-        </h2>
-        {insights.length > 0 && (
-          <span
-            className="text-[9px] font-bold tabular-nums px-1.5 py-0.5 rounded"
-            style={{ background: "var(--red-dim)", color: "var(--red)", fontFamily: "'JetBrains Mono', monospace" }}
-          >
-            {insights.length}
-          </span>
-        )}
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "var(--t3)" }}>
+            Alerts
+          </h2>
+          {insights.length > 0 && (
+            <span
+              className="text-[9px] font-bold tabular-nums px-1.5 py-0.5 rounded"
+              style={{ background: "var(--red-dim)", color: "var(--red)", fontFamily: "'JetBrains Mono', monospace" }}
+            >
+              {insights.length}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => void handleGenerate()}
+          disabled={generating || loading}
+          className="text-[9px] font-semibold px-2 py-1 rounded transition-all disabled:opacity-40"
+          style={{ color: "var(--t3)", background: "var(--surface-2)", border: "1px solid var(--border)" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--t1)")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--t3)")}
+          title="Run insight checks across all athletes"
+        >
+          {generating ? "Running…" : "Run checks"}
+        </button>
       </div>
 
       <div

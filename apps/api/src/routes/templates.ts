@@ -1,6 +1,39 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { authenticate } from '../middleware/auth';
+import { parseOrReply } from '../lib/validation';
+
+const idParamsSchema = z.object({ id: z.string().uuid() });
+
+const blockSchema = z.object({
+  type: z.enum(['warmup', 'interval', 'steady', 'cooldown', 'rest', 'note']),
+  description: z.string().trim().min(1),
+  duration_min: z.number().int().positive().nullable().optional(),
+  distance_m: z.number().int().positive().nullable().optional(),
+  intensity: z.string().nullable().optional(),
+  reps: z.number().int().positive().nullable().optional(),
+});
+
+const createTemplateSchema = z.object({
+  name: z.string().trim().min(1),
+  description: z.string().nullable().optional(),
+  type: z.enum(['swim', 'bike', 'run', 'strength', 'rest', 'other']),
+  duration_min: z.number().int().positive().nullable().optional(),
+  tss: z.number().nullable().optional(),
+  is_shared: z.boolean().optional().default(false),
+  blocks: z.array(blockSchema).optional().default([]),
+});
+
+const updateTemplateSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  description: z.string().nullable().optional(),
+  type: z.enum(['swim', 'bike', 'run', 'strength', 'rest', 'other']).optional(),
+  duration_min: z.number().int().positive().nullable().optional(),
+  tss: z.number().nullable().optional(),
+  is_shared: z.boolean().optional(),
+  blocks: z.array(blockSchema).optional(),
+});
 
 const sortBlocks = (t: any) => ({
   ...t,
@@ -8,7 +41,7 @@ const sortBlocks = (t: any) => ({
 });
 
 export async function templateRoutes(app: FastifyInstance) {
-  // GET /templates — own templates + shared from other coaches
+  // GET /templates
   app.get('/templates', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
 
@@ -37,10 +70,13 @@ export async function templateRoutes(app: FastifyInstance) {
     });
   });
 
-  // POST /templates — create a new template with blocks
+  // POST /templates
   app.post('/templates', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { blocks = [], ...rest } = req.body as any;
+    const parsedBody = parseOrReply(createTemplateSchema, req.body, reply);
+    if (!parsedBody) return;
+
+    const { blocks, ...rest } = parsedBody;
 
     const { data: tmpl, error } = await supabase
       .from('workout_templates')
@@ -51,7 +87,7 @@ export async function templateRoutes(app: FastifyInstance) {
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
 
     if (blocks.length) {
-      const rows = blocks.map((b: any, i: number) => ({ ...b, template_id: tmpl.id, position: i }));
+      const rows = blocks.map((b, i) => ({ ...b, template_id: tmpl.id, position: i }));
       await supabase.from('template_blocks').insert(rows);
     }
 
@@ -64,31 +100,34 @@ export async function templateRoutes(app: FastifyInstance) {
     return reply.code(201).send({ success: true, data: sortBlocks(full) });
   });
 
-  // PATCH /templates/:id — update template and optionally replace blocks
+  // PATCH /templates/:id
   app.patch('/templates/:id', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
-    const { blocks, ...rest } = req.body as any;
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    const parsedBody = parseOrReply(updateTemplateSchema, req.body, reply);
+    if (!parsedParams || !parsedBody) return;
 
     const { data: existing } = await supabase
       .from('workout_templates')
       .select('id')
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .eq('coach_id', coachId)
       .single();
     if (!existing) return reply.code(403).send({ success: false, error: { message: 'Forbidden' } });
 
+    const { blocks, ...rest } = parsedBody;
+
     const { error } = await supabase
       .from('workout_templates')
       .update({ ...rest, updated_at: new Date().toISOString() })
-      .eq('id', id);
+      .eq('id', parsedParams.id);
 
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
 
     if (blocks !== undefined) {
-      await supabase.from('template_blocks').delete().eq('template_id', id);
+      await supabase.from('template_blocks').delete().eq('template_id', parsedParams.id);
       if (blocks.length) {
-        const rows = blocks.map((b: any, i: number) => ({ ...b, template_id: id, position: i }));
+        const rows = blocks.map((b, i) => ({ ...b, template_id: parsedParams.id, position: i }));
         await supabase.from('template_blocks').insert(rows);
       }
     }
@@ -96,7 +135,7 @@ export async function templateRoutes(app: FastifyInstance) {
     const { data: full } = await supabase
       .from('workout_templates')
       .select('*, blocks:template_blocks(*)')
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .single();
 
     return reply.send({ success: true, data: sortBlocks(full) });
@@ -105,29 +144,31 @@ export async function templateRoutes(app: FastifyInstance) {
   // DELETE /templates/:id
   app.delete('/templates/:id', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    if (!parsedParams) return;
 
     const { data: existing } = await supabase
       .from('workout_templates')
       .select('id')
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .eq('coach_id', coachId)
       .single();
     if (!existing) return reply.code(403).send({ success: false, error: { message: 'Forbidden' } });
 
-    await supabase.from('workout_templates').delete().eq('id', id);
+    await supabase.from('workout_templates').delete().eq('id', parsedParams.id);
     return reply.send({ success: true, data: { deleted: true } });
   });
 
-  // POST /templates/:id/copy — copy a shared template into your own
+  // POST /templates/:id/copy
   app.post('/templates/:id/copy', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    if (!parsedParams) return;
 
     const { data: source } = await supabase
       .from('workout_templates')
       .select('*, blocks:template_blocks(*)')
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .eq('is_shared', true)
       .single();
 

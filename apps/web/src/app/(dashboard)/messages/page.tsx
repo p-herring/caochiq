@@ -137,13 +137,37 @@ function ThreadView({ athlete }: { athlete: AthleteWithProfile }) {
     setLoading(true);
     setMessages([]);
     fetchThread();
+
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
+    let userId = "";
+    supabase.auth.getUser().then(({ data }) => {
+      userId = data.user?.id ?? "";
+      setCurrentUserId(userId);
+
+      // Realtime subscription — falls back to polling if RLS blocks subscription
+      const channel = supabase
+        .channel(`messages:${athlete.id}`)
+        .on(
+          "postgres_changes" as any,
+          { event: "INSERT", schema: "public", table: "messages", filter: `recipient_id=eq.${userId}` },
+          (payload: any) => {
+            setMessages((prev) => {
+              if (prev.find((m) => m.id === payload.new.id)) return prev;
+              return [...prev, payload.new as import("@coaching/shared").Message];
+            });
+          }
+        )
+        .subscribe();
+
+      return () => { supabase.removeChannel(channel); };
+    });
   }, [athlete.id, fetchThread]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  // Fallback polling every 15s in case realtime is not available
   useEffect(() => {
-    const t = setInterval(fetchThread, 10000);
+    const t = setInterval(fetchThread, 15000);
     return () => clearInterval(t);
   }, [fetchThread]);
 

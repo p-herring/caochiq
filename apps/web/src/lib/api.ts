@@ -6,6 +6,7 @@
 import type {
   AthleteWithProfile,
   SessionWithBlocks,
+  WorkoutBlock,
   TrainingPlan,
   WorkoutLog,
   Insight,
@@ -141,6 +142,18 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ block_ids: blockIds }),
       }),
+    addBlock: (sessionId: string, data: Omit<WorkoutBlock, "id" | "session_id" | "position" | "created_at">) =>
+      request<WorkoutBlock>(`/sessions/${sessionId}/blocks`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    updateBlock: (sessionId: string, blockId: string, data: Partial<Omit<WorkoutBlock, "id" | "session_id" | "position" | "created_at">>) =>
+      request<WorkoutBlock>(`/sessions/${sessionId}/blocks/${blockId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    deleteBlock: (sessionId: string, blockId: string) =>
+      request<{ deleted: boolean }>(`/sessions/${sessionId}/blocks/${blockId}`, { method: "DELETE" }),
   },
 
   logs: {
@@ -159,6 +172,8 @@ export const api = {
       request<Insight[]>(`/insights${athleteId ? `?athlete_id=${athleteId}` : ""}`),
     dismiss: (id: string) =>
       request<Insight>(`/insights/${id}/dismiss`, { method: "POST" }),
+    generate: () =>
+      request<{ generated: number }>("/insights/generate", { method: "POST" }),
   },
 
   messages: {

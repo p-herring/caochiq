@@ -1,14 +1,45 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { authenticate } from '../middleware/auth';
+import { parseOrReply } from '../lib/validation';
+
+const idParamsSchema = z.object({ id: z.string().uuid() });
+const weekParamsSchema = z.object({ id: z.string().uuid(), weekNumber: z.string().regex(/^\d+$/) });
+
+const planQuerySchema = z.object({
+  athlete_id: z.string().uuid().optional(),
+});
+
+const createPlanSchema = z.object({
+  athlete_id: z.string().uuid(),
+  name: z.string().trim().min(1),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  is_active: z.boolean().optional().default(true),
+});
+
+const updatePlanSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  is_active: z.boolean().optional(),
+});
+
+const weekBodySchema = z.object({
+  phase: z.enum(['base', 'build', 'peak', 'taper', 'race', 'recovery']).nullable().optional(),
+  tss_target: z.number().nullable().optional(),
+  hours_target: z.number().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
 
 export async function planRoutes(app: FastifyInstance) {
   // POST /plans
   app.post('/plans', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const body = req.body as any;
+    const body = parseOrReply(createPlanSchema, req.body, reply);
+    if (!body) return;
 
-    // If is_active, deactivate other plans for this athlete
     if (body.is_active) {
       await supabase
         .from('training_plans')
@@ -27,10 +58,11 @@ export async function planRoutes(app: FastifyInstance) {
     return reply.code(201).send({ success: true, data });
   });
 
-  // GET /plans?athlete_id=xxx  (returns active plan)
+  // GET /plans?athlete_id=xxx
   app.get('/plans', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { athlete_id } = req.query as { athlete_id?: string };
+    const parsedQuery = parseOrReply(planQuerySchema, req.query, reply);
+    if (!parsedQuery) return;
 
     let query = supabase
       .from('training_plans')
@@ -39,7 +71,7 @@ export async function planRoutes(app: FastifyInstance) {
       .eq('is_active', true)
       .order('created_at', { ascending: false });
 
-    if (athlete_id) query = query.eq('athlete_id', athlete_id);
+    if (parsedQuery.athlete_id) query = query.eq('athlete_id', parsedQuery.athlete_id);
 
     const { data, error } = await query.limit(1).maybeSingle();
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
@@ -49,12 +81,13 @@ export async function planRoutes(app: FastifyInstance) {
   // GET /plans/:id
   app.get('/plans/:id', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    if (!parsedParams) return;
 
     const { data: plan, error } = await supabase
       .from('training_plans')
       .select('*')
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .eq('coach_id', coachId)
       .single();
 
@@ -63,7 +96,7 @@ export async function planRoutes(app: FastifyInstance) {
     const { data: sessions } = await supabase
       .from('sessions')
       .select('*, blocks:workout_blocks(*)')
-      .eq('plan_id', id)
+      .eq('plan_id', parsedParams.id)
       .order('date')
       .order('position');
 
@@ -73,37 +106,40 @@ export async function planRoutes(app: FastifyInstance) {
   // PATCH /plans/:id
   app.patch('/plans/:id', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
-    const body = req.body as any;
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    const parsedBody = parseOrReply(updatePlanSchema, req.body, reply);
+    if (!parsedParams || !parsedBody) return;
 
     const { data, error } = await supabase
       .from('training_plans')
-      .update({ ...body, updated_at: new Date().toISOString() })
-      .eq('id', id)
+      .update({ ...parsedBody, updated_at: new Date().toISOString() })
+      .eq('id', parsedParams.id)
       .eq('coach_id', coachId)
       .select()
       .single();
 
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
+    if (!data) return reply.code(404).send({ success: false, error: { message: 'Not found' } });
     return reply.send({ success: true, data });
   });
 
-  // GET /plans/:id/weeks — full macro view with per-week session stats
+  // GET /plans/:id/weeks
   app.get('/plans/:id/weeks', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    if (!parsedParams) return;
 
     const { data: plan } = await supabase
       .from('training_plans')
       .select('*')
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .eq('coach_id', coachId)
       .single();
     if (!plan) return reply.code(404).send({ success: false, error: { message: 'Not found' } });
 
     const [{ data: sessions }, { data: weekMeta }] = await Promise.all([
-      supabase.from('sessions').select('date, type, duration_min, tss, status').eq('plan_id', id).order('date'),
-      supabase.from('plan_weeks').select('*').eq('plan_id', id),
+      supabase.from('sessions').select('date, type, duration_min, tss, status').eq('plan_id', parsedParams.id).order('date'),
+      supabase.from('plan_weeks').select('*').eq('plan_id', parsedParams.id),
     ]);
 
     const planStart = getMondayOf(new Date(plan.start_date));
@@ -133,7 +169,7 @@ export async function planRoutes(app: FastifyInstance) {
 
       weeks.push({
         id: meta?.id ?? null,
-        plan_id: id,
+        plan_id: parsedParams.id,
         week_number: weekNumber,
         week_start: weekStartStr,
         week_end: weekEndStr,
@@ -154,28 +190,29 @@ export async function planRoutes(app: FastifyInstance) {
     return reply.send({ success: true, data: weeks });
   });
 
-  // PUT /plans/:id/weeks/:weekNumber — upsert week metadata
+  // PUT /plans/:id/weeks/:weekNumber
   app.put('/plans/:id/weeks/:weekNumber', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id, weekNumber } = req.params as { id: string; weekNumber: string };
-    const body = req.body as any;
+    const parsedParams = parseOrReply(weekParamsSchema, req.params, reply);
+    const parsedBody = parseOrReply(weekBodySchema, req.body, reply);
+    if (!parsedParams || !parsedBody) return;
 
     const { data: plan } = await supabase
       .from('training_plans')
       .select('id, start_date')
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .eq('coach_id', coachId)
       .single();
     if (!plan) return reply.code(403).send({ success: false, error: { message: 'Forbidden' } });
 
     const planStart = getMondayOf(new Date(plan.start_date));
-    planStart.setDate(planStart.getDate() + (Number(weekNumber) - 1) * 7);
+    planStart.setDate(planStart.getDate() + (Number(parsedParams.weekNumber) - 1) * 7);
     const weekStartStr = planStart.toISOString().split('T')[0]!;
 
     const { data, error } = await supabase
       .from('plan_weeks')
       .upsert(
-        { plan_id: id, week_number: Number(weekNumber), week_start: weekStartStr, ...body },
+        { plan_id: parsedParams.id, week_number: Number(parsedParams.weekNumber), week_start: weekStartStr, ...parsedBody },
         { onConflict: 'plan_id,week_number' }
       )
       .select()
@@ -188,12 +225,13 @@ export async function planRoutes(app: FastifyInstance) {
   // DELETE /plans/:id
   app.delete('/plans/:id', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    if (!parsedParams) return;
 
     const { error } = await supabase
       .from('training_plans')
       .delete()
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .eq('coach_id', coachId);
 
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
