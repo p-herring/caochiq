@@ -8,7 +8,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@coaching/shared": "workspace:*",
+    "@coaching/shared": "*",
     "@fastify/cors": "^9.0.1",
     "@fastify/jwt": "^8.0.1",
     "@supabase/supabase-js": "^2.43.0",
