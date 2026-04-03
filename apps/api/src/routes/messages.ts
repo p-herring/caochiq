@@ -10,11 +10,19 @@ export async function messageRoutes(app: FastifyInstance) {
 
     if (!withId) return reply.code(400).send({ success: false, error: { message: 'with param required' } });
 
+    // Resolve: withId may be an athlete row id — look up their auth user_id
+    const { data: athleteRow } = await supabase
+      .from('athletes')
+      .select('user_id')
+      .eq('id', withId)
+      .maybeSingle();
+    const resolvedWithId = athleteRow?.user_id ?? withId;
+
     const { data, error } = await supabase
       .from('messages')
       .select('*')
       .or(
-        `and(sender_id.eq.${userId},recipient_id.eq.${withId}),and(sender_id.eq.${withId},recipient_id.eq.${userId})`
+        `and(sender_id.eq.${userId},recipient_id.eq.${resolvedWithId}),and(sender_id.eq.${resolvedWithId},recipient_id.eq.${userId})`
       )
       .order('created_at');
 
@@ -24,7 +32,7 @@ export async function messageRoutes(app: FastifyInstance) {
     await supabase
       .from('messages')
       .update({ read: true })
-      .eq('sender_id', withId)
+      .eq('sender_id', resolvedWithId)
       .eq('recipient_id', userId)
       .eq('read', false);
 

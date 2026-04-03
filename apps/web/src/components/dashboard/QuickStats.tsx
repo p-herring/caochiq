@@ -17,7 +17,7 @@ export default function QuickStats(): React.JSX.Element {
       label: "Active Athletes",
       value: String(data.athletes.length),
       sub: "on your roster",
-      color: "var(--t1)",
+      color: "var(--text-1)",
     },
     {
       label: "Avg 7d Compliance",
@@ -26,7 +26,7 @@ export default function QuickStats(): React.JSX.Element {
         : "—",
       sub: "last 7 days",
       color: (() => {
-        if (!data.athletes.length) return "var(--t3)";
+        if (!data.athletes.length) return "var(--text-3)";
         const avg = data.athletes.reduce((s, a) => s + a.athlete.compliance_7d, 0) / data.athletes.length;
         return avg >= 80 ? "var(--green)" : avg >= 50 ? "var(--amber)" : "var(--red)";
       })(),
@@ -35,13 +35,13 @@ export default function QuickStats(): React.JSX.Element {
       label: "Open Flags",
       value: String(data.open_flags),
       sub: data.open_flags === 0 ? "all clear" : "need attention",
-      color: data.open_flags > 0 ? "var(--red)" : "var(--t3)",
+      color: data.open_flags > 0 ? "var(--red)" : "var(--text-3)",
     },
     {
       label: "Unread Messages",
       value: String(data.unread_messages),
       sub: "from athletes",
-      color: data.unread_messages > 0 ? "var(--accent)" : "var(--t3)",
+      color: data.unread_messages > 0 ? "var(--accent)" : "var(--text-3)",
     },
   ] : Array(4).fill(null);
 
@@ -65,7 +65,7 @@ export default function QuickStats(): React.JSX.Element {
           >
             <p
               className="text-[9px] font-bold uppercase tracking-[0.12em] mb-2"
-              style={{ color: "var(--t3)" }}
+              style={{ color: "var(--text-3)" }}
             >
               {stat.label}
             </p>
@@ -75,7 +75,7 @@ export default function QuickStats(): React.JSX.Element {
             >
               {stat.value}
             </p>
-            <p className="text-[10px] mt-1.5" style={{ color: "var(--t3)" }}>{stat.sub}</p>
+            <p className="text-[10px] mt-1.5" style={{ color: "var(--text-3)" }}>{stat.sub}</p>
           </div>
         )
       )}
