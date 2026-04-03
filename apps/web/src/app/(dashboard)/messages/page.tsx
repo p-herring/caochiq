@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import type { AthleteWithProfile, Message } from "@coaching/shared";
 import { createClient } from "@/lib/supabase";
@@ -108,14 +109,7 @@ export default function MessagesPage(): React.JSX.Element {
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <div
-                className="h-12 w-12 rounded-xl flex items-center justify-center mx-auto mb-4"
-                style={{ background: "var(--surface)" }}
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ color: "var(--text-3)" }}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
-                </svg>
-              </div>
+              <div className="h-12 w-12 rounded-xl flex items-center justify-center mx-auto mb-4" style={{ background: "var(--surface)" }} />
               <p className="text-[13px] font-medium" style={{ color: "var(--text-2)" }}>No conversation selected</p>
               <p className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>Choose an athlete from the sidebar.</p>
             </div>
@@ -197,15 +191,13 @@ function ThreadView({ athlete }: { athlete: AthleteWithProfile }) {
 
         {/* Action links */}
         <div className="flex items-center gap-2">
-          <a
+          <Link
             href={`/athletes/${athlete.id}`}
             className="text-[11px] font-medium px-2.5 py-1.5 rounded transition-all duration-150"
             style={{ background: "var(--surface-2)", color: "var(--text-2)", border: "1px solid var(--border)" }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-1)")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-2)")}
           >
             View profile
-          </a>
+          </Link>
         </div>
       </div>
 

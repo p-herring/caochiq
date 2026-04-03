@@ -18,7 +18,7 @@ create table if not exists coach_profiles (
 -- ─── Athletes ─────────────────────────────────────────────────────────────────
 create table if not exists athletes (
   id          uuid primary key default uuid_generate_v4(),
-  coach_id    uuid references auth.users(id) on delete cascade not null,
+  coach_id    uuid references auth.users(id) on delete cascade,
   user_id     uuid references auth.users(id) on delete set null,
   full_name   text not null,
   email       text not null,
@@ -27,6 +27,7 @@ create table if not exists athletes (
 );
 
 create index if not exists athletes_coach_id_idx on athletes(coach_id);
+create index if not exists athletes_unassigned_idx on athletes(id) where coach_id is null;
 
 -- ─── Athlete Profiles ─────────────────────────────────────────────────────────
 create table if not exists athlete_profiles (

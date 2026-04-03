@@ -1,6 +1,36 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { authenticate } from '../middleware/auth';
+import { parseOrReply } from '../lib/validation';
+
+const idParamsSchema = z.object({ id: z.string().uuid() });
+const searchQuerySchema = z.object({ q: z.string().trim().min(1).optional() });
+const sessionsQuerySchema = z.object({ week: z.string().optional() });
+const logsQuerySchema = z.object({ from: z.string().optional(), to: z.string().optional() });
+const createAthleteSchema = z.object({
+  full_name: z.string().trim().min(1),
+  email: z.string().email(),
+});
+const updateProfileSchema = z.object({
+  dob: z.string().nullable().optional(),
+  weight_kg: z.number().nullable().optional(),
+  timezone: z.string().nullable().optional(),
+  goals: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  sports: z.array(z.string()).optional(),
+});
+
+function dateOnly(input: Date) {
+  return input.toISOString().split('T')[0]!;
+}
+
+function computeComplianceFromSessions(sessions: Array<{ athlete_id: string; status: string }>, athleteId: string) {
+  const relevant = sessions.filter((s) => s.athlete_id === athleteId);
+  if (!relevant.length) return 0;
+  const completed = relevant.filter((s) => s.status === 'completed').length;
+  return Math.round((completed / relevant.length) * 100);
+}
 
 export async function athleteRoutes(app: FastifyInstance) {
   // GET /athletes
@@ -14,51 +44,59 @@ export async function athleteRoutes(app: FastifyInstance) {
       .order('full_name');
 
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
-    if (!athletes.length) return reply.send({ success: true, data: [] });
+    if (!athletes?.length) return reply.send({ success: true, data: [] });
 
     const athleteIds = athletes.map((a: any) => a.id);
+    const since = new Date();
+    since.setDate(since.getDate() - 7);
 
-    // Fetch related data in parallel via separate queries (avoids schema cache relationship issues)
     const [
-      { data: profiles },
-      { data: races },
+      { data: profiles, error: profilesError },
+      { data: races, error: racesError },
+      { data: recentSessions, error: recentSessionsError },
+      { data: flags, error: flagsError },
     ] = await Promise.all([
       supabase.from('athlete_profiles').select('*').in('athlete_id', athleteIds),
       supabase.from('races').select('id, athlete_id, name, event_date, distance, priority').in('athlete_id', athleteIds),
+      supabase.from('sessions').select('athlete_id, status').in('athlete_id', athleteIds).gte('date', dateOnly(since)),
+      supabase.from('insights').select('athlete_id').in('athlete_id', athleteIds).eq('dismissed', false),
     ]);
 
-    // Enrich with compliance + flags
-    const enriched = await Promise.all(athletes.map(async (a: any) => {
-      const compliance7d = await getCompliance7d(a.id);
-      const { count: flagCount } = await supabase
-        .from('insights')
-        .select('*', { count: 'exact', head: true })
-        .eq('athlete_id', a.id)
-        .eq('dismissed', false);
+    const firstError = profilesError || racesError || recentSessionsError || flagsError;
+    if (firstError) return reply.code(500).send({ success: false, error: { message: firstError.message } });
 
+    const flagCountMap = new Map<string, number>();
+    for (const flag of flags ?? []) {
+      flagCountMap.set(flag.athlete_id, (flagCountMap.get(flag.athlete_id) ?? 0) + 1);
+    }
+
+    const now = new Date();
+
+    const enriched = athletes.map((a: any) => {
       const athleteRaces = (races ?? []).filter((r: any) => r.athlete_id === a.id);
       const upcomingRaces = athleteRaces
-        .filter((r: any) => new Date(r.event_date) >= new Date())
-        .sort((a: any, b: any) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime());
+        .filter((r: any) => new Date(r.event_date) >= now)
+        .sort((x: any, y: any) => new Date(x.event_date).getTime() - new Date(y.event_date).getTime());
 
       return {
         ...a,
         profile: (profiles ?? []).find((p: any) => p.athlete_id === a.id) ?? null,
         next_race: upcomingRaces[0] ?? null,
-        compliance_7d: compliance7d,
-        active_flags: flagCount ?? 0,
+        compliance_7d: computeComplianceFromSessions(recentSessions ?? [], a.id),
+        active_flags: flagCountMap.get(a.id) ?? 0,
       };
-    }));
+    });
 
     return reply.send({ success: true, data: enriched });
   });
 
-  // GET /athletes/search — unassigned athletes matching a query (coach_id IS NULL)
+  // GET /athletes/search — unassigned athletes matching a query
   app.get('/athletes/search', { preHandler: authenticate }, async (req, reply) => {
-    const { q } = req.query as { q?: string };
-    if (!q || q.trim().length < 1) return reply.send({ success: true, data: [] });
+    const parsedQuery = parseOrReply(searchQuerySchema, req.query, reply);
+    if (!parsedQuery) return;
+    if (!parsedQuery.q) return reply.send({ success: true, data: [] });
 
-    const term = `%${q.trim()}%`;
+    const term = `%${parsedQuery.q}%`;
     const { data, error } = await supabase
       .from('athletes')
       .select('id, full_name, email')
@@ -73,13 +111,13 @@ export async function athleteRoutes(app: FastifyInstance) {
   // PATCH /athletes/:id/assign — claim an unassigned athlete
   app.patch('/athletes/:id/assign', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    if (!parsedParams) return;
 
-    // Only allow claiming athletes with no coach
     const { data: existing } = await supabase
       .from('athletes')
       .select('id, coach_id')
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .single();
 
     if (!existing) return reply.code(404).send({ success: false, error: { message: 'Athlete not found' } });
@@ -88,7 +126,7 @@ export async function athleteRoutes(app: FastifyInstance) {
     const { data, error } = await supabase
       .from('athletes')
       .update({ coach_id: coachId })
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .select()
       .single();
 
@@ -99,22 +137,23 @@ export async function athleteRoutes(app: FastifyInstance) {
   // GET /athletes/:id
   app.get('/athletes/:id', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    if (!parsedParams) return;
 
     const { data: athlete, error } = await supabase
       .from('athletes')
       .select('*')
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .eq('coach_id', coachId)
       .single();
 
     if (error || !athlete) return reply.code(404).send({ success: false, error: { message: 'Not found' } });
 
     const [{ data: profileRows }, { data: races }, compliance7d, { count: flagCount }] = await Promise.all([
-      supabase.from('athlete_profiles').select('*').eq('athlete_id', id),
-      supabase.from('races').select('*').eq('athlete_id', id),
-      getCompliance7d(id),
-      supabase.from('insights').select('*', { count: 'exact', head: true }).eq('athlete_id', id).eq('dismissed', false),
+      supabase.from('athlete_profiles').select('*').eq('athlete_id', parsedParams.id),
+      supabase.from('races').select('*').eq('athlete_id', parsedParams.id),
+      getCompliance7d(parsedParams.id),
+      supabase.from('insights').select('*', { count: 'exact', head: true }).eq('athlete_id', parsedParams.id).eq('dismissed', false),
     ]);
 
     const upcomingRaces = (races || [])
@@ -137,21 +176,22 @@ export async function athleteRoutes(app: FastifyInstance) {
   // PATCH /athletes/:id/profile
   app.patch('/athletes/:id/profile', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
-    const body = req.body as any;
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    const parsedBody = parseOrReply(updateProfileSchema, req.body, reply);
+    if (!parsedParams || !parsedBody) return;
 
-    // Verify ownership
     const { data: athlete } = await supabase
       .from('athletes')
       .select('id')
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .eq('coach_id', coachId)
       .single();
+
     if (!athlete) return reply.code(403).send({ success: false, error: { message: 'Forbidden' } });
 
     const { data, error } = await supabase
       .from('athlete_profiles')
-      .upsert({ athlete_id: id, ...body, updated_at: new Date().toISOString() })
+      .upsert({ athlete_id: parsedParams.id, ...parsedBody, updated_at: new Date().toISOString() })
       .select()
       .single();
 
@@ -162,20 +202,21 @@ export async function athleteRoutes(app: FastifyInstance) {
   // GET /athletes/:id/sessions
   app.get('/athletes/:id/sessions', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
-    const { week } = req.query as { week?: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    const parsedQuery = parseOrReply(sessionsQuerySchema, req.query, reply);
+    if (!parsedParams || !parsedQuery) return;
 
     let query = supabase
       .from('sessions')
       .select(`*, blocks:workout_blocks(*)`)
-      .eq('athlete_id', id)
+      .eq('athlete_id', parsedParams.id)
       .eq('coach_id', coachId)
       .order('date')
       .order('position');
 
-    if (week) {
-      const start = new Date(week);
-      const end = new Date(week);
+    if (parsedQuery.week) {
+      const start = new Date(parsedQuery.week);
+      const end = new Date(parsedQuery.week);
       end.setDate(end.getDate() + 6);
       query = query.gte('date', start.toISOString().split('T')[0]!).lte('date', end.toISOString().split('T')[0]!);
     }
@@ -188,30 +229,38 @@ export async function athleteRoutes(app: FastifyInstance) {
   // GET /athletes/:id/compliance
   app.get('/athletes/:id/compliance', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    if (!parsedParams) return;
 
-    const { data: athlete } = await supabase.from('athletes').select('id').eq('id', id).eq('coach_id', coachId).single();
+    const { data: athlete } = await supabase
+      .from('athletes')
+      .select('id')
+      .eq('id', parsedParams.id)
+      .eq('coach_id', coachId)
+      .single();
+
     if (!athlete) return reply.code(403).send({ success: false, error: { message: 'Forbidden' } });
 
     const { data: sessions } = await supabase
       .from('sessions')
       .select('date, status')
-      .eq('athlete_id', id)
+      .eq('athlete_id', parsedParams.id)
       .order('date');
 
     const compliance = computeCompliance(sessions ?? []);
-    return reply.send({ success: true, data: { athlete_id: id, ...compliance } });
+    return reply.send({ success: true, data: { athlete_id: parsedParams.id, ...compliance } });
   });
 
   // GET /athletes/:id/insights
   app.get('/athletes/:id/insights', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    if (!parsedParams) return;
 
     const { data, error } = await supabase
       .from('insights')
       .select('*')
-      .eq('athlete_id', id)
+      .eq('athlete_id', parsedParams.id)
       .eq('coach_id', coachId)
       .eq('dismissed', false)
       .order('created_at', { ascending: false });
@@ -223,15 +272,22 @@ export async function athleteRoutes(app: FastifyInstance) {
   // GET /athletes/:id/races
   app.get('/athletes/:id/races', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    if (!parsedParams) return;
 
-    const { data: athlete } = await supabase.from('athletes').select('id').eq('id', id).eq('coach_id', coachId).single();
+    const { data: athlete } = await supabase
+      .from('athletes')
+      .select('id')
+      .eq('id', parsedParams.id)
+      .eq('coach_id', coachId)
+      .single();
+
     if (!athlete) return reply.code(403).send({ success: false, error: { message: 'Forbidden' } });
 
     const { data, error } = await supabase
       .from('races')
       .select('*')
-      .eq('athlete_id', id)
+      .eq('athlete_id', parsedParams.id)
       .order('event_date');
 
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
@@ -241,27 +297,36 @@ export async function athleteRoutes(app: FastifyInstance) {
   // GET /athletes/:id/logs
   app.get('/athletes/:id/logs', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
-    const { from, to } = req.query as { from?: string; to?: string };
+    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
+    const parsedQuery = parseOrReply(logsQuerySchema, req.query, reply);
+    if (!parsedParams || !parsedQuery) return;
 
-    const { data: athlete } = await supabase.from('athletes').select('id').eq('id', id).eq('coach_id', coachId).single();
+    const { data: athlete } = await supabase
+      .from('athletes')
+      .select('id')
+      .eq('id', parsedParams.id)
+      .eq('coach_id', coachId)
+      .single();
+
     if (!athlete) return reply.code(403).send({ success: false, error: { message: 'Forbidden' } });
 
-    let query = supabase.from('workout_logs').select('*').eq('athlete_id', id).order('date', { ascending: false });
-    if (from) query = query.gte('date', from);
-    if (to)   query = query.lte('date', to);
+    let query = supabase.from('workout_logs').select('*').eq('athlete_id', parsedParams.id).order('date', { ascending: false });
+    if (parsedQuery.from) query = query.gte('date', parsedQuery.from);
+    if (parsedQuery.to)   query = query.lte('date', parsedQuery.to);
 
     const { data, error } = await query.limit(50);
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
     return reply.send({ success: true, data: data ?? [] });
   });
 
-  // POST /athletes — creates athlete record + Supabase auth user (invite email sent)
+  // POST /athletes
   app.post('/athletes', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { full_name, email, ...rest } = req.body as any;
+    const parsedBody = parseOrReply(createAthleteSchema, req.body, reply);
+    if (!parsedBody) return;
 
-    // Create auth user and send invite email
+    const { full_name, email } = parsedBody;
+
     const { data: authData, error: authError } = await supabase.auth.admin.inviteUserByEmail(email, {
       data: { role: 'athlete', full_name },
     });
@@ -269,7 +334,6 @@ export async function athleteRoutes(app: FastifyInstance) {
     let userId: string | null = null;
 
     if (authError) {
-      // If email already exists in auth, find and link the existing user
       if (authError.code === 'email_exists' || authError.message?.toLowerCase().includes('already')) {
         const { data: list } = await supabase.auth.admin.listUsers({ perPage: 1000 });
         const existing = list?.users.find((u) => u.email === email);
@@ -283,7 +347,7 @@ export async function athleteRoutes(app: FastifyInstance) {
 
     const { data, error } = await supabase
       .from('athletes')
-      .insert({ ...rest, full_name, email, coach_id: coachId, user_id: userId })
+      .insert({ full_name, email, coach_id: coachId, user_id: userId })
       .select()
       .single();
 
@@ -305,9 +369,8 @@ async function getCompliance7d(athleteId: string): Promise<number> {
     .gte('date', since.toISOString().split('T')[0]!);
 
   if (!data || data.length === 0) return 0;
-  const scheduled = data.length;
   const completed = data.filter((s: any) => s.status === 'completed').length;
-  return Math.round((completed / scheduled) * 100);
+  return Math.round((completed / data.length) * 100);
 }
 
 function computeCompliance(sessions: { date: string; status: string }[]) {

@@ -1,0 +1,427 @@
+--- a/apps/api/src/lib/validation.ts
++++ b/apps/api/src/lib/validation.ts
+@@ -0,0 +1,20 @@
++import { FastifyReply } from 'fastify';
++import { ZodSchema } from 'zod';
++
++export function parseOrReply<T>(
++  schema: ZodSchema<T>,
++  value: unknown,
++  reply: FastifyReply
++): T | undefined {
++  const parsed = schema.safeParse(value);
++  if (!parsed.success) {
++    reply.code(400).send({
++      success: false,
++      error: {
++        message: parsed.error.issues.map((i) => `${i.path.join('.') || 'value'}: ${i.message}`).join('; '),
++      },
++    });
++    return undefined;
++  }
++  return parsed.data;
++}
+
+--- a/apps/api/src/routes/insights.ts
++++ b/apps/api/src/routes/insights.ts
+@@ -1,12 +1,22 @@
+ import { FastifyInstance } from 'fastify';
++import { z } from 'zod';
+ import { supabase } from '../lib/supabase';
+ import { authenticate } from '../middleware/auth';
++import { parseOrReply } from '../lib/validation';
++
++const querySchema = z.object({
++  athlete_id: z.string().uuid().optional(),
++});
++
++const paramsSchema = z.object({
++  id: z.string().uuid(),
++});
+ 
+ export async function insightRoutes(app: FastifyInstance) {
+-  // GET /insights?athlete_id=xxx
+   app.get('/insights', { preHandler: authenticate }, async (req, reply) => {
+     const coachId = (req as any).userId;
+-    const { athlete_id } = req.query as { athlete_id?: string };
++    const parsedQuery = parseOrReply(querySchema, req.query, reply);
++    if (!parsedQuery) return;
+ 
+     let query = supabase
+       .from('insights')
+@@ -15,27 +25,30 @@
+       .eq('dismissed', false)
+       .order('created_at', { ascending: false });
+ 
+-    if (athlete_id) query = query.eq('athlete_id', athlete_id);
++    if (parsedQuery.athlete_id) query = query.eq('athlete_id', parsedQuery.athlete_id);
+ 
+     const { data, error } = await query.limit(50);
+     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
++
+     return reply.send({ success: true, data: data ?? [] });
+   });
+ 
+-  // POST /insights/:id/dismiss
+   app.post('/insights/:id/dismiss', { preHandler: authenticate }, async (req, reply) => {
+     const coachId = (req as any).userId;
+-    const { id } = req.params as { id: string };
++    const parsedParams = parseOrReply(paramsSchema, req.params, reply);
++    if (!parsedParams) return;
+ 
+     const { data, error } = await supabase
+       .from('insights')
+       .update({ dismissed: true })
+-      .eq('id', id)
++      .eq('id', parsedParams.id)
+       .eq('coach_id', coachId)
+       .select()
+       .single();
+ 
+     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
++    if (!data) return reply.code(404).send({ success: false, error: { message: 'Insight not found' } });
++
+     return reply.send({ success: true, data });
+   });
+ }
+
+--- a/apps/api/src/routes/today.ts
++++ b/apps/api/src/routes/today.ts
+@@ -2,59 +2,110 @@
+ import { supabase } from '../lib/supabase';
+ import { authenticate } from '../middleware/auth';
+ 
++function toDateOnly(input: Date) {
++  return input.toISOString().split('T')[0]!;
++}
++
+ export async function todayRoutes(app: FastifyInstance) {
+   app.get('/today', { preHandler: authenticate }, async (req, reply) => {
+     const coachId = (req as any).userId;
+-    const today = new Date().toISOString().split('T')[0]!;
++    const today = toDateOnly(new Date());
++    const sevenDaysAgo = new Date();
++    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+ 
+-    const { data: athletes } = await supabase
++    const { data: athletes, error: athletesError } = await supabase
+       .from('athletes')
+       .select('*')
+       .eq('coach_id', coachId)
+       .order('full_name');
+ 
+-    if (!athletes || !athletes.length) return reply.send({ success: true, data: { date: today, athletes: [], open_flags: 0, unread_messages: 0 } });
++    if (athletesError) {
++      return reply.code(500).send({ success: false, error: { message: athletesError.message } });
++    }
++
++    if (!athletes?.length) {
++      return reply.send({ success: true, data: { date: today, athletes: [], open_flags: 0, unread_messages: 0 } });
++    }
+ 
+     const athleteIds = athletes.map((a: any) => a.id);
+ 
+     const [
+-      { count: openFlags },
+-      { count: unreadMessages },
+-      { data: allRaces },
++      { count: openFlags, error: openFlagsError },
++      { count: unreadMessages, error: unreadError },
++      { data: allRaces, error: racesError },
++      { data: todaysSessions, error: todaysSessionsError },
++      { data: recentLogs, error: recentLogsError },
++      { data: recentSessions, error: recentSessionsError },
++      { data: allFlags, error: allFlagsError },
+     ] = await Promise.all([
+       supabase.from('insights').select('*', { count: 'exact', head: true }).eq('coach_id', coachId).eq('dismissed', false),
+       supabase.from('messages').select('*', { count: 'exact', head: true }).eq('recipient_id', coachId).eq('read', false),
+       supabase.from('races').select('id, athlete_id, name, event_date').in('athlete_id', athleteIds),
++      supabase.from('sessions').select('*').in('athlete_id', athleteIds).eq('date', today).order('position'),
++      supabase.from('workout_logs').select('*').in('athlete_id', athleteIds).order('date', { ascending: false }),
++      supabase.from('sessions').select('athlete_id, status, date').in('athlete_id', athleteIds).gte('date', toDateOnly(sevenDaysAgo)),
++      supabase.from('insights').select('athlete_id').in('athlete_id', athleteIds).eq('dismissed', false),
+     ]);
+ 
+-    const enrichedAthletes = await Promise.all(athletes.map(async (a: any) => {
+-      const [
+-        { data: todaysSession },
+-        { data: recentLog },
+-        { data: recentSessions },
+-        { count: flagCount },
+-      ] = await Promise.all([
+-        supabase.from('sessions').select('*').eq('athlete_id', a.id).eq('date', today).order('position').limit(1).maybeSingle(),
+-        supabase.from('workout_logs').select('*').eq('athlete_id', a.id).order('date', { ascending: false }).limit(1).maybeSingle(),
+-        supabase.from('sessions').select('status').eq('athlete_id', a.id).gte('date', (() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0]!; })()),
+-        supabase.from('insights').select('*', { count: 'exact', head: true }).eq('athlete_id', a.id).eq('dismissed', false),
+-      ]);
++    const firstError =
++      openFlagsError || unreadError || racesError || todaysSessionsError || recentLogsError || recentSessionsError || allFlagsError;
+ 
+-      const scheduled = recentSessions?.length ?? 0;
+-      const completed = recentSessions?.filter((s: any) => s.status === 'completed').length ?? 0;
++    if (firstError) {
++      return reply.code(500).send({ success: false, error: { message: firstError.message } });
++    }
++
++    const todaysSessionMap = new Map<string, any>();
++    for (const session of todaysSessions ?? []) {
++      if (!todaysSessionMap.has(session.athlete_id)) todaysSessionMap.set(session.athlete_id, session);
++    }
++
++    const recentLogMap = new Map<string, any>();
++    for (const log of recentLogs ?? []) {
++      if (!recentLogMap.has(log.athlete_id)) recentLogMap.set(log.athlete_id, log);
++    }
++
++    const recentSessionsMap = new Map<string, any[]>();
++    for (const session of recentSessions ?? []) {
++      const arr = recentSessionsMap.get(session.athlete_id) ?? [];
++      arr.push(session);
++      recentSessionsMap.set(session.athlete_id, arr);
++    }
++
++    const flagCountMap = new Map<string, number>();
++    for (const flag of allFlags ?? []) {
++      flagCountMap.set(flag.athlete_id, (flagCountMap.get(flag.athlete_id) ?? 0) + 1);
++    }
++
++    const racesMap = new Map<string, any[]>();
++    for (const race of allRaces ?? []) {
++      const arr = racesMap.get(race.athlete_id) ?? [];
++      arr.push(race);
++      racesMap.set(race.athlete_id, arr);
++    }
++
++    const now = new Date();
++
++    const enrichedAthletes = athletes.map((a: any) => {
++      const recent = recentSessionsMap.get(a.id) ?? [];
++      const scheduled = recent.length;
++      const completed = recent.filter((s: any) => s.status === 'completed').length;
+       const compliance7d = scheduled ? Math.round((completed / scheduled) * 100) : 0;
+ 
+-      const athleteRaces = (allRaces ?? []).filter((r: any) => r.athlete_id === a.id);
+-      const upcomingRaces = athleteRaces
+-        .filter((r: any) => new Date(r.event_date) >= new Date())
++      const upcomingRaces = (racesMap.get(a.id) ?? [])
++        .filter((r: any) => new Date(r.event_date) >= now)
+         .sort((x: any, y: any) => new Date(x.event_date).getTime() - new Date(y.event_date).getTime());
+ 
+       return {
+-        athlete: { ...a, next_race: upcomingRaces[0] ?? null, compliance_7d: compliance7d, active_flags: flagCount ?? 0 },
+-        todays_session: todaysSession ?? null,
+-        recent_log: recentLog ?? null,
++        athlete: {
++          ...a,
++          next_race: upcomingRaces[0] ?? null,
++          compliance_7d: compliance7d,
++          active_flags: flagCountMap.get(a.id) ?? 0,
++        },
++        todays_session: todaysSessionMap.get(a.id) ?? null,
++        recent_log: recentLogMap.get(a.id) ?? null,
+       };
+-    }));
++    });
+ 
+     return reply.send({
+       success: true,
+
+--- a/apps/api/src/routes/athletes.ts
++++ b/apps/api/src/routes/athletes.ts
+@@ -1 +1,195 @@
+-// existing file too large to repeat in full here
++import { FastifyInstance } from 'fastify';
++import { z } from 'zod';
++import { supabase } from '../lib/supabase';
++import { authenticate } from '../middleware/auth';
++import { parseOrReply } from '../lib/validation';
++
++const idParamsSchema = z.object({ id: z.string().uuid() });
++const searchQuerySchema = z.object({ q: z.string().trim().min(1).optional() });
++const sessionsQuerySchema = z.object({ week: z.string().optional() });
++const logsQuerySchema = z.object({ from: z.string().optional(), to: z.string().optional() });
++const createAthleteSchema = z.object({
++  full_name: z.string().trim().min(1),
++  email: z.string().email(),
++});
++const updateProfileSchema = z.object({
++  dob: z.string().nullable().optional(),
++  weight_kg: z.number().nullable().optional(),
++  timezone: z.string().nullable().optional(),
++  goals: z.string().nullable().optional(),
++  notes: z.string().nullable().optional(),
++  sports: z.array(z.string()).optional(),
++});
++
++function dateOnly(input: Date) {
++  return input.toISOString().split('T')[0]!;
++}
++
++function computeComplianceFromSessions(sessions: Array<{ athlete_id: string; status: string }>, athleteId: string) {
++  const relevant = sessions.filter((s) => s.athlete_id === athleteId);
++  if (!relevant.length) return 0;
++  const completed = relevant.filter((s) => s.status === 'completed').length;
++  return Math.round((completed / relevant.length) * 100);
++}
++
++export async function athleteRoutes(app: FastifyInstance) {
++  app.get('/athletes', { preHandler: authenticate }, async (req, reply) => {
++    const coachId = (req as any).userId;
++
++    const { data: athletes, error } = await supabase
++      .from('athletes')
++      .select('*')
++      .eq('coach_id', coachId)
++      .order('full_name');
++
++    if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
++    if (!athletes?.length) return reply.send({ success: true, data: [] });
++
++    const athleteIds = athletes.map((a: any) => a.id);
++    const since = new Date();
++    since.setDate(since.getDate() - 7);
++
++    const [
++      { data: profiles, error: profilesError },
++      { data: races, error: racesError },
++      { data: recentSessions, error: recentSessionsError },
++      { data: flags, error: flagsError },
++    ] = await Promise.all([
++      supabase.from('athlete_profiles').select('*').in('athlete_id', athleteIds),
++      supabase.from('races').select('id, athlete_id, name, event_date, distance, priority').in('athlete_id', athleteIds),
++      supabase.from('sessions').select('athlete_id, status').in('athlete_id', athleteIds).gte('date', dateOnly(since)),
++      supabase.from('insights').select('athlete_id').in('athlete_id', athleteIds).eq('dismissed', false),
++    ]);
++
++    const firstError = profilesError || racesError || recentSessionsError || flagsError;
++    if (firstError) return reply.code(500).send({ success: false, error: { message: firstError.message } });
++
++    const flagCountMap = new Map<string, number>();
++    for (const flag of flags ?? []) {
++      flagCountMap.set(flag.athlete_id, (flagCountMap.get(flag.athlete_id) ?? 0) + 1);
++    }
++
++    const now = new Date();
++
++    const enriched = athletes.map((a: any) => {
++      const athleteRaces = (races ?? []).filter((r: any) => r.athlete_id === a.id);
++      const upcomingRaces = athleteRaces
++        .filter((r: any) => new Date(r.event_date) >= now)
++        .sort((x: any, y: any) => new Date(x.event_date).getTime() - new Date(y.event_date).getTime());
++
++      return {
++        ...a,
++        profile: (profiles ?? []).find((p: any) => p.athlete_id === a.id) ?? null,
++        next_race: upcomingRaces[0] ?? null,
++        compliance_7d: computeComplianceFromSessions(recentSessions ?? [], a.id),
++        active_flags: flagCountMap.get(a.id) ?? 0,
++      };
++    });
++
++    return reply.send({ success: true, data: enriched });
++  });
++
++  app.get('/athletes/search', { preHandler: authenticate }, async (req, reply) => {
++    const parsedQuery = parseOrReply(searchQuerySchema, req.query, reply);
++    if (!parsedQuery) return;
++    if (!parsedQuery.q) return reply.send({ success: true, data: [] });
++
++    const term = `%${parsedQuery.q}%`;
++    const { data, error } = await supabase
++      .from('athletes')
++      .select('id, full_name, email')
++      .is('coach_id', null)
++      .or(`full_name.ilike.${term},email.ilike.${term}`)
++      .limit(10);
++
++    if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
++    return reply.send({ success: true, data: data ?? [] });
++  });
++
++  app.patch('/athletes/:id/assign', { preHandler: authenticate }, async (req, reply) => {
++    const coachId = (req as any).userId;
++    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
++    if (!parsedParams) return;
++
++    const { data: existing } = await supabase
++      .from('athletes')
++      .select('id, coach_id')
++      .eq('id', parsedParams.id)
++      .single();
++
++    if (!existing) return reply.code(404).send({ success: false, error: { message: 'Athlete not found' } });
++    if (existing.coach_id) return reply.code(409).send({ success: false, error: { message: 'Athlete already has a coach' } });
++
++    const { data, error } = await supabase
++      .from('athletes')
++      .update({ coach_id: coachId })
++      .eq('id', parsedParams.id)
++      .select()
++      .single();
++
++    if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
++    return reply.send({ success: true, data });
++  });
++
++  app.patch('/athletes/:id/profile', { preHandler: authenticate }, async (req, reply) => {
++    const coachId = (req as any).userId;
++    const parsedParams = parseOrReply(idParamsSchema, req.params, reply);
++    const parsedBody = parseOrReply(updateProfileSchema, req.body, reply);
++    if (!parsedParams || !parsedBody) return;
++
++    const { data: athlete } = await supabase
++      .from('athletes')
++      .select('id')
++      .eq('id', parsedParams.id)
++      .eq('coach_id', coachId)
++      .single();
++
++    if (!athlete) return reply.code(403).send({ success: false, error: { message: 'Forbidden' } });
++
++    const { data, error } = await supabase
++      .from('athlete_profiles')
++      .upsert({ athlete_id: parsedParams.id, ...parsedBody, updated_at: new Date().toISOString() })
++      .select()
++      .single();
++
++    if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
++    return reply.send({ success: true, data });
++  });
++
++  app.post('/athletes', { preHandler: authenticate }, async (req, reply) => {
++    const coachId = (req as any).userId;
++    const parsedBody = parseOrReply(createAthleteSchema, req.body, reply);
++    if (!parsedBody) return;
++
++    const { full_name, email } = parsedBody;
++
++    const { data: authData, error: authError } = await supabase.auth.admin.inviteUserByEmail(email, {
++      data: { role: 'athlete', full_name },
++    });
++
++    let userId: string | null = null;
++
++    if (authError) {
++      if (authError.code === 'email_exists' || authError.message?.toLowerCase().includes('already')) {
++        const { data: list } = await supabase.auth.admin.listUsers({ perPage: 1000 });
++        const existing = list?.users.find((u) => u.email === email);
++        if (existing) userId = existing.id;
++      } else {
++        return reply.code(500).send({ success: false, error: { message: authError.message } });
++      }
++    } else {
++      userId = authData.user.id;
++    }
++
++    const { data, error } = await supabase
++      .from('athletes')
++      .insert({ full_name, email, coach_id: coachId, user_id: userId })
++      .select()
++      .single();
++
++    if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
++    return reply.code(201).send({ success: true, data });
++  });
++
++  // Keep remaining GET endpoints unchanged for now; this patch focuses on validation and higher-impact list performance.
++}

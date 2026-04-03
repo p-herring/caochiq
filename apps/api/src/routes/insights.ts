@@ -1,12 +1,22 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { authenticate } from '../middleware/auth';
+import { parseOrReply } from '../lib/validation';
+
+const querySchema = z.object({
+  athlete_id: z.string().uuid().optional(),
+});
+
+const paramsSchema = z.object({
+  id: z.string().uuid(),
+});
 
 export async function insightRoutes(app: FastifyInstance) {
-  // GET /insights?athlete_id=xxx
   app.get('/insights', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { athlete_id } = req.query as { athlete_id?: string };
+    const parsedQuery = parseOrReply(querySchema, req.query, reply);
+    if (!parsedQuery) return;
 
     let query = supabase
       .from('insights')
@@ -15,27 +25,30 @@ export async function insightRoutes(app: FastifyInstance) {
       .eq('dismissed', false)
       .order('created_at', { ascending: false });
 
-    if (athlete_id) query = query.eq('athlete_id', athlete_id);
+    if (parsedQuery.athlete_id) query = query.eq('athlete_id', parsedQuery.athlete_id);
 
     const { data, error } = await query.limit(50);
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
+
     return reply.send({ success: true, data: data ?? [] });
   });
 
-  // POST /insights/:id/dismiss
   app.post('/insights/:id/dismiss', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(paramsSchema, req.params, reply);
+    if (!parsedParams) return;
 
     const { data, error } = await supabase
       .from('insights')
       .update({ dismissed: true })
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .eq('coach_id', coachId)
       .select()
       .single();
 
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
+    if (!data) return reply.code(404).send({ success: false, error: { message: 'Insight not found' } });
+
     return reply.send({ success: true, data });
   });
 }

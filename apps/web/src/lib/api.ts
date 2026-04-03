@@ -20,12 +20,12 @@ import type {
   CreateWorkoutTemplate,
   PlanWeekSummary,
   PlanPhase,
+  StravaIntegrationStatusItem,
 } from "@coaching/shared";
 
 const API_BASE = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
 
 async function getToken(): Promise<string> {
-  // Import dynamically to avoid SSR issues
   const { createClient } = await import("./supabase");
   const supabase = createClient();
   const { data } = await supabase.auth.getSession();
@@ -46,20 +46,25 @@ async function request<T>(
         Authorization: `Bearer ${token}`,
         ...options.headers,
       },
+      cache: "no-store",
     });
   } catch {
     throw new Error(`Cannot reach API at ${API_BASE}. Check that the server is running and NEXT_PUBLIC_API_URL is set correctly.`);
   }
 
-  let json: { success: boolean; data?: T; error?: unknown };
+  let json: { success: boolean; data?: T; error?: { message?: string } | unknown };
   try {
     json = await res.json();
   } catch {
     throw new Error(`API returned a non-JSON response (HTTP ${res.status}). Check that NEXT_PUBLIC_API_URL is correct: ${API_BASE}`);
   }
 
-  if (!json.success) {
-    throw new Error(JSON.stringify(json.error));
+  if (!res.ok || !json.success) {
+    const message =
+      typeof json.error === "object" && json.error && "message" in json.error
+        ? String((json.error as { message?: string }).message ?? "Request failed")
+        : `Request failed with HTTP ${res.status}`;
+    throw new Error(message);
   }
 
   return json.data as T;
@@ -193,13 +198,13 @@ export const api = {
   },
 
   integrations: {
-    status: () => request("/integrations/status"),
-    stravaConnect: () =>
-      request<{ url: string }>("/integrations/strava/connect"),
-    stravaDisconnect: () =>
-      request("/integrations/strava", { method: "DELETE" }),
-    stravaSync: () =>
-      request<{ synced_count: number }>("/integrations/strava/sync", {
+    status: () => request<StravaIntegrationStatusItem[]>("/integrations/status"),
+    stravaConnect: (athleteId: string) =>
+      request<{ url: string }>(`/integrations/strava/connect?athlete_id=${encodeURIComponent(athleteId)}`),
+    stravaDisconnect: (athleteId: string) =>
+      request<{ disconnected: boolean }>(`/integrations/strava?athlete_id=${encodeURIComponent(athleteId)}`, { method: "DELETE" }),
+    stravaSync: (athleteId: string) =>
+      request<{ synced_count: number }>(`/integrations/strava/sync?athlete_id=${encodeURIComponent(athleteId)}`, {
         method: "POST",
       }),
   },

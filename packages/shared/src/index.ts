@@ -12,7 +12,7 @@ export interface CoachProfile {
 
 export interface Athlete {
   id: string;
-  coach_id: string;
+  coach_id: string | null;
   user_id: string | null;
   full_name: string;
   email: string;
@@ -45,6 +45,7 @@ export interface Race {
 
 export interface AthleteWithProfile extends Athlete {
   profile: AthleteProfile | null;
+  races?: Race[];
   next_race: Race | null;
   compliance_7d: number;
   active_flags: number;
@@ -222,10 +223,12 @@ export interface StravaIntegration {
   updated_at: string;
 }
 
-export interface IntegrationStatus {
+export interface StravaIntegrationStatusItem {
+  athlete_id: string;
+  athlete_name: string;
   strava: {
     connected: boolean;
-    athlete_name: string | null;
+    strava_athlete_id: string | null;
     last_sync: string | null;
   };
 }

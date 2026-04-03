@@ -1,0 +1,651 @@
+--- a/README.md
++++ b/README.md
+@@ -20,24 +20,42 @@
+ 
+ ### 1. Run the database schema
+ 
+-1. Go to your [Supabase dashboard](https://supabase.com/dashboard)
++1. Go to your Supabase dashboard
+ 2. Open your project → **SQL Editor**
+ 3. Paste the contents of `scripts/schema.sql` and click **Run**
+ 
+ This creates all tables, indexes, RLS policies, and triggers.
+ 
+-### 2. Get your Supabase JWT secret
++### 2. Configure environment variables
+ 
+-1. Supabase dashboard → **Project Settings** → **JWT Settings**
+-2. Copy the **JWT Secret**
+-3. Open `apps/api/.env` and set `SUPABASE_JWT_SECRET=your_secret_here`
++Create local `.env` files using placeholder values only.
++
++**`apps/api/.env`**
++```bash
++PORT=3001
++HOST=0.0.0.0
++SUPABASE_URL=https://your-project.supabase.co
++SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
++SUPABASE_JWT_SECRET=your-jwt-secret
++STRAVA_CLIENT_ID=your-strava-client-id
++STRAVA_CLIENT_SECRET=your-strava-client-secret
++STRAVA_REDIRECT_URI=http://localhost:3001/api/v1/integrations/strava/callback
++FRONTEND_URL=http://localhost:3000
++```
++
++**`apps/web/.env.local`**
++```bash
++NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
++NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
++NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
++```
+ 
+ ### 3. Set up Strava redirect URI
+ 
+-In your [Strava API settings](https://www.strava.com/settings/api):
++In your Strava API settings:
+ - Set **Authorization Callback Domain** to `localhost`
+ 
+-For production, update `STRAVA_REDIRECT_URI` in `apps/api/.env` to your Railway URL.
++For production, update `STRAVA_REDIRECT_URI` to your Railway URL.
+ 
+ ### 4. Start everything
+ 
+@@ -54,26 +72,18 @@
+ npm run dev
+ ```
+ 
+-Visit **http://localhost:3000** — you'll be redirected to the login page.
++Visit **http://localhost:3000**.
+ 
+ ### 5. Create your coach account
+ 
+-1. Go to http://localhost:3000/login
+-2. Click "Sign up" and create an account with your email
+-3. Check your email for the confirmation link (or disable email confirmation in Supabase Auth settings for local dev)
+-4. Sign in and you'll land on the dashboard
++1. Go to `http://localhost:3000/login`
++2. Click **Sign up**
++3. Confirm your email if email confirmation is enabled
++4. Sign in and land on the dashboard
+ 
+ ### 6. Add your first athlete
+ 
+-Currently athletes are added directly in Supabase:
+-
+-1. Supabase dashboard → **Table Editor** → `athletes`
+-2. Insert a row with:
+-   - `coach_id`: your user ID (find it in Authentication → Users)
+-   - `full_name`: athlete's name
+-   - `email`: athlete's email
+-
+-An athlete profile row is auto-created by a trigger.
++Use the in-app **Add Athlete** flow on the Athletes page.
+ 
+ ---
+ 
+@@ -81,62 +91,57 @@
+ 
+ ### Frontend → Vercel
+ 
+-1. Push to GitHub
+-2. Go to [vercel.com](https://vercel.com) → New Project → Import your repo
+-3. Set these environment variables in Vercel:
+-   ```
+-   NEXT_PUBLIC_SUPABASE_URL=https://qpebywzqdgyljocyihcq.supabase.co
+-   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+-   NEXT_PUBLIC_API_URL=https://your-railway-api-url.up.railway.app/api/v1
+-   ```
+-4. Deploy — Vercel auto-detects Next.js
++Set these environment variables:
++```bash
++NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
++NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
++NEXT_PUBLIC_API_URL=https://your-api.up.railway.app/api/v1
++```
+ 
+ ### Backend → Railway
+ 
+-1. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub
+-2. Select your repo
+-3. Set these environment variables in Railway:
+-   ```
+-   PORT=3001
+-   SUPABASE_URL=https://qpebywzqdgyljocyihcq.supabase.co
+-   SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6InNlcnZpY2Vfcm9sZSJ9...
+-   SUPABASE_JWT_SECRET=your-jwt-secret
+-   STRAVA_CLIENT_ID=219538
+-   STRAVA_CLIENT_SECRET=385d3bece9a0fef71016f7bb3499bf444019e72a
+-   STRAVA_REDIRECT_URI=https://your-railway-url.up.railway.app/api/v1/integrations/strava/callback
+-   FRONTEND_URL=https://your-vercel-url.vercel.app
+-   ```
+-4. Railway will use `railway.toml` to build and start the API
++Set these environment variables:
++```bash
++PORT=3001
++SUPABASE_URL=https://your-project.supabase.co
++SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
++SUPABASE_JWT_SECRET=your-jwt-secret
++STRAVA_CLIENT_ID=your-strava-client-id
++STRAVA_CLIENT_SECRET=your-strava-client-secret
++STRAVA_REDIRECT_URI=https://your-api.up.railway.app/api/v1/integrations/strava/callback
++FRONTEND_URL=https://your-app.vercel.app
++```
+ 
+ ### After deploying
+ 
+-1. Update Strava API settings with your Railway callback URL
+-2. Update `NEXT_PUBLIC_API_URL` in Vercel to point to your Railway URL
+-3. Add your Vercel domain to Supabase → **Authentication** → **URL Configuration** → Site URL
++1. Update Strava API settings with your production callback URL
++2. Update `NEXT_PUBLIC_API_URL` in Vercel
++3. Add your Vercel domain to Supabase URL Configuration
+ 
+ ---
+ 
+ ## Project structure
+ 
+-```
++```text
+ coachiq/
+ ├── packages/
+-│   └── shared/          # TypeScript types shared between web + api
++│   └── shared/
+ ├── apps/
+-│   ├── api/             # Fastify backend
++│   ├── api/
+ │   │   └── src/
+-│   │       ├── routes/  # athletes, plans, sessions, messages, insights, strava
+-│   │       ├── lib/     # supabase client
+-│   │       └── middleware/  # auth
+-│   └── web/             # Next.js frontend
++│   │       ├── routes/
++│   │       ├── lib/
++│   │       └── middleware/
++│   └── web/
+ │       └── src/
+-│           ├── app/     # pages
+-│           └── components/
++│           ├── app/
++│           ├── components/
++│           └── lib/
+ ├── scripts/
+-│   └── schema.sql       # Full DB schema — run once in Supabase
+-├── railway.toml         # Railway deploy config
+-├── vercel.json          # Vercel deploy config
+-└── setup.sh             # Local dev startup script
++│   └── schema.sql
++├── railway.toml
++├── vercel.json
++└── setup.sh
+ ```
+ 
+ ---
+@@ -146,10 +151,12 @@
+ | Method | Path | Description |
+ |--------|------|-------------|
+ | GET | /athletes | List all athletes |
++| GET | /athletes/search?q= | Search unassigned athletes |
++| PATCH | /athletes/:id/assign | Claim unassigned athlete |
+ | POST | /athletes | Create athlete |
+ | GET | /athletes/:id | Get athlete detail |
+ | PATCH | /athletes/:id/profile | Update profile/notes |
+-| GET | /athletes/:id/sessions | Get sessions (optional ?week=) |
++| GET | /athletes/:id/sessions | Get sessions (optional `?week=`) |
+ | GET | /athletes/:id/compliance | Compliance data + chart |
+ | GET | /athletes/:id/insights | Active flags |
+ | GET | /athletes/:id/logs | Workout history |
+@@ -157,21 +164,31 @@
+ | POST | /plans | Create training plan |
+ | GET | /plans?athlete_id= | Get active plan |
+ | GET | /plans/:id | Plan + all sessions |
++| GET | /plans/:id/weeks | Plan week summaries |
+ | PATCH | /plans/:id | Update plan |
++| PUT | /plans/:id/weeks/:weekNumber | Upsert week metadata |
+ | DELETE | /plans/:id | Delete plan |
+ | GET | /sessions/:id | Session + blocks |
+ | POST | /sessions | Create session |
+ | PATCH | /sessions/:id | Update session |
+ | DELETE | /sessions/:id | Delete session |
+-| POST | /sessions/:id/blocks | Add block |
+-| POST | /sessions/:id/blocks/reorder | Reorder blocks |
++| POST | /sessions/:sessionId/blocks | Add block |
++| PATCH | /sessions/:sessionId/blocks/:blockId | Update block |
++| DELETE | /sessions/:sessionId/blocks/:blockId | Delete block |
++| POST | /sessions/:sessionId/blocks/reorder | Reorder blocks |
+ | GET | /messages?with= | Message thread |
+ | POST | /messages | Send message |
++| PATCH | /messages/:id/read | Mark message read |
+ | GET | /messages/unread-count | Unread count |
+ | GET | /insights | All active flags |
+ | POST | /insights/:id/dismiss | Dismiss flag |
+ | GET | /today | Dashboard overview |
++| GET | /templates | Template library |
++| POST | /templates | Create template |
++| PATCH | /templates/:id | Update template |
++| DELETE | /templates/:id | Delete template |
++| POST | /templates/:id/copy | Copy shared template |
+ | GET | /integrations/status | Strava connection status |
+-| GET | /integrations/strava/connect | Get OAuth URL |
+-| POST | /integrations/strava/sync | Sync activities |
+-| DELETE | /integrations/strava | Disconnect |
++| GET | /integrations/strava/connect?athlete_id= | Get OAuth URL |
++| POST | /integrations/strava/sync?athlete_id= | Sync activities |
++| DELETE | /integrations/strava?athlete_id= | Disconnect |
+
+--- a/vercel.json
++++ b/vercel.json
+@@ -3,8 +3,5 @@
+   "buildCommand": "npm run build --workspace=packages/shared && npm run build --workspace=apps/web",
+   "outputDirectory": "apps/web/.next",
+   "installCommand": "npm install",
+-  "framework": "nextjs",
+-  "rewrites": [
+-    { "source": "/(.*)", "destination": "/" }
+-  ]
++  "framework": "nextjs"
+ }
+
+--- a/apps/web/next.config.mjs
++++ b/apps/web/next.config.mjs
+@@ -1,8 +1,6 @@
+ /** @type {import('next').NextConfig} */
+ const nextConfig = {
+   transpilePackages: ["@coaching/shared"],
+-  typescript: { ignoreBuildErrors: true },
+-  eslint: { ignoreDuringBuilds: true },
+   experimental: {},
+ };
+ 
+
+--- a/packages/shared/src/index.ts
++++ b/packages/shared/src/index.ts
+@@ -12,7 +12,7 @@
+ 
+ export interface Athlete {
+   id: string;
+-  coach_id: string;
++  coach_id: string | null;
+   user_id: string | null;
+   full_name: string;
+   email: string;
+@@ -45,6 +45,7 @@
+ 
+ export interface AthleteWithProfile extends Athlete {
+   profile: AthleteProfile | null;
++  races?: Race[];
+   next_race: Race | null;
+   compliance_7d: number;
+   active_flags: number;
+@@ -222,10 +223,12 @@
+   updated_at: string;
+ }
+ 
+-export interface IntegrationStatus {
++export interface StravaIntegrationStatusItem {
++  athlete_id: string;
++  athlete_name: string;
+   strava: {
+     connected: boolean;
+-    athlete_name: string | null;
++    strava_athlete_id: string | null;
+     last_sync: string | null;
+   };
+ }
+
+--- a/scripts/schema.sql
++++ b/scripts/schema.sql
+@@ -18,7 +18,7 @@
+ -- ─── Athletes ─────────────────────────────────────────────────────────────────
+ create table if not exists athletes (
+   id          uuid primary key default uuid_generate_v4(),
+-  coach_id    uuid references auth.users(id) on delete cascade not null,
++  coach_id    uuid references auth.users(id) on delete cascade,
+   user_id     uuid references auth.users(id) on delete set null,
+   full_name   text not null,
+   email       text not null,
+@@ -27,3 +27,4 @@
+ );
+ 
+ create index if not exists athletes_coach_id_idx on athletes(coach_id);
++create index if not exists athletes_unassigned_idx on athletes(id) where coach_id is null;
+
+--- a/apps/web/src/lib/api.ts
++++ b/apps/web/src/lib/api.ts
+@@ -20,24 +20,22 @@
+   CreateWorkoutTemplate,
+   PlanWeekSummary,
+   PlanPhase,
++  StravaIntegrationStatusItem,
+ } from "@coaching/shared";
+ 
+ const API_BASE = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
+ 
+ async function getToken(): Promise<string> {
+-  // Import dynamically to avoid SSR issues
+   const { createClient } = await import("./supabase");
+   const supabase = createClient();
+   const { data } = await supabase.auth.getSession();
+   return data.session?.access_token ?? "";
+ }
+ 
+-async function request<T>(
+-  path: string,
+-  options: RequestInit = {}
+-): Promise<T> {
++async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+   const token = await getToken();
+   let res: Response;
++
+   try {
+     res = await fetch(`${API_BASE}${path}`, {
+       ...options,
+@@ -46,26 +44,29 @@
+         Authorization: `Bearer ${token}`,
+         ...options.headers,
+       },
++      cache: "no-store",
+     });
+   } catch {
+     throw new Error(`Cannot reach API at ${API_BASE}. Check that the server is running and NEXT_PUBLIC_API_URL is set correctly.`);
+   }
+ 
+-  let json: { success: boolean; data?: T; error?: unknown };
++  let json: { success: boolean; data?: T; error?: { message?: string } | unknown };
+   try {
+     json = await res.json();
+   } catch {
+     throw new Error(`API returned a non-JSON response (HTTP ${res.status}). Check that NEXT_PUBLIC_API_URL is correct: ${API_BASE}`);
+   }
+ 
+-  if (!json.success) {
+-    throw new Error(JSON.stringify(json.error));
++  if (!res.ok || !json.success) {
++    const message =
++      typeof json.error === "object" && json.error && "message" in json.error
++        ? String((json.error as { message?: string }).message ?? "Request failed")
++        : `Request failed with HTTP ${res.status}`;
++    throw new Error(message);
+   }
+ 
+   return json.data as T;
+ }
+-
+-// ─── Athletes ─────────────────────────────────────────────────────────────────
+ 
+ export const api = {
+   athletes: {
+@@ -86,9 +87,7 @@
+         body: JSON.stringify(data),
+       }),
+     getSessions: (id: string, week?: string) =>
+-      request<SessionWithBlocks[]>(
+-        `/athletes/${id}/sessions${week ? `?week=${week}` : ""}`
+-      ),
++      request<SessionWithBlocks[]>(`/athletes/${id}/sessions${week ? `?week=${week}` : ""}`),
+     getCompliance: (id: string) =>
+       request<ComplianceData>(`/athletes/${id}/compliance`),
+     getInsights: (id: string) =>
+@@ -113,8 +112,16 @@
+       request<{ deleted: boolean }>(`/plans/${id}`, { method: "DELETE" }),
+     getWeeks: (planId: string) =>
+       request<PlanWeekSummary[]>(`/plans/${planId}/weeks`),
+-    updateWeek: (planId: string, weekNumber: number, data: { phase?: PlanPhase | null; tss_target?: number | null; hours_target?: number | null; notes?: string | null }) =>
+-      request(`/plans/${planId}/weeks/${weekNumber}`, { method: "PUT", body: JSON.stringify(data) }),
++    updateWeek: (
++      planId: string,
++      weekNumber: number,
++      data: {
++        phase?: PlanPhase | null;
++        tss_target?: number | null;
++        hours_target?: number | null;
++        notes?: string | null;
++      }
++    ) => request(`/plans/${planId}/weeks/${weekNumber}`, { method: "PUT", body: JSON.stringify(data) }),
+   },
+ 
+   sessions: {
+@@ -143,9 +150,7 @@
+       const params = new URLSearchParams();
+       if (from) params.set("from", from);
+       if (to) params.set("to", to);
+-      return request<WorkoutLog[]>(
+-        `/athletes/${athleteId}/logs${params.size ? `?${params}` : ""}`
+-      );
++      return request<WorkoutLog[]>(`/athletes/${athleteId}/logs${params.size ? `?${params}` : ""}`);
+     },
+   },
+ 
+@@ -193,13 +198,13 @@
+   },
+ 
+   integrations: {
+-    status: () => request("/integrations/status"),
+-    stravaConnect: () =>
+-      request<{ url: string }>("/integrations/strava/connect"),
+-    stravaDisconnect: () =>
+-      request("/integrations/strava", { method: "DELETE" }),
+-    stravaSync: () =>
+-      request<{ synced_count: number }>("/integrations/strava/sync", {
++    status: () => request<StravaIntegrationStatusItem[]>("/integrations/status"),
++    stravaConnect: (athleteId: string) =>
++      request<{ url: string }>(`/integrations/strava/connect?athlete_id=${encodeURIComponent(athleteId)}`),
++    stravaDisconnect: (athleteId: string) =>
++      request<{ disconnected: boolean }>(`/integrations/strava?athlete_id=${encodeURIComponent(athleteId)}`, { method: "DELETE" }),
++    stravaSync: (athleteId: string) =>
++      request<{ synced_count: number }>(`/integrations/strava/sync?athlete_id=${encodeURIComponent(athleteId)}`, {
+         method: "POST",
+       }),
+   },
+
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -18,6 +18,9 @@
+     --text-1:      #E8E8F0;
+     --text-2:      #7878A0;
+     --text-3:      #40405A;
++    --t1:          var(--text-1);
++    --t2:          var(--text-2);
++    --t3:          var(--text-3);
+     --green:       #22C55E;
+     --green-dim:   rgba(34, 197, 94, 0.12);
+     --red:         #F05252;
+@@ -41,6 +44,9 @@
+     --text-1:      #111118;
+     --text-2:      #555570;
+     --text-3:      #9898B8;
++    --t1:          var(--text-1);
++    --t2:          var(--text-2);
++    --t3:          var(--text-3);
+     --green:       #16A34A;
+     --green-dim:   rgba(22, 163, 74, 0.1);
+     --red:         #DC2626;
+@@ -67,6 +73,15 @@
+     background-color: var(--bg);
+   }
+ 
++  a, button, input, textarea, select {
++    transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease, opacity 120ms ease;
++  }
++
++  :focus-visible {
++    outline: 2px solid var(--accent);
++    outline-offset: 2px;
++  }
++
+   ::-webkit-scrollbar { width: 5px; height: 5px; }
+   ::-webkit-scrollbar-track { background: transparent; }
+   ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+
+--- a/apps/web/src/app/(dashboard)/messages/page.tsx
++++ b/apps/web/src/app/(dashboard)/messages/page.tsx
+@@ -1,6 +1,7 @@
+ "use client";
+ 
+ import React, { useEffect, useRef, useState, useCallback } from "react";
++import Link from "next/link";
+ import { api } from "@/lib/api";
+ import type { AthleteWithProfile, Message } from "@coaching/shared";
+ import { createClient } from "@/lib/supabase";
+@@ -21,19 +22,16 @@
+ 
+   return (
+     <div className="flex h-full" style={{ background: "var(--bg)" }}>
+-      {/* Contacts sidebar */}
+       <div
+         className="w-60 shrink-0 flex flex-col"
+         style={{ background: "var(--surface)", borderRight: "1px solid var(--border)" }}
+       >
+-        {/* Sidebar header */}
+         <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+           <p className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "var(--text-3)" }}>
+             Messages
+           </p>
+         </div>
+ 
+-        {/* Athlete list */}
+         <div className="flex-1 overflow-y-auto">
+           {loadingAthletes ? (
+             [...Array(4)].map((_, i) => (
+@@ -79,10 +77,7 @@
+                   {initials}
+                 </div>
+                 <div className="min-w-0 flex-1">
+-                  <p
+-                    className="text-[12px] font-medium truncate"
+-                    style={{ color: isSelected ? "var(--text-1)" : "var(--text-2)" }}
+-                  >
++                  <p className="text-[12px] font-medium truncate" style={{ color: isSelected ? "var(--text-1)" : "var(--text-2)" }}>
+                     {a.full_name}
+                   </p>
+                   <p className="text-[10px] truncate" style={{ color: "var(--text-3)" }}>{a.email}</p>
+@@ -101,21 +96,13 @@
+         </div>
+       </div>
+ 
+-      {/* Thread */}
+       <div className="flex-1 flex flex-col min-w-0" style={{ background: "var(--bg)" }}>
+         {selected ? (
+           <ThreadView athlete={selected} />
+         ) : (
+           <div className="flex-1 flex items-center justify-center">
+             <div className="text-center">
+-              <div
+-                className="h-12 w-12 rounded-xl flex items-center justify-center mx-auto mb-4"
+-                style={{ background: "var(--surface)" }}
+-              >
+-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ color: "var(--text-3)" }}>
+-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+-                </svg>
+-              </div>
++              <div className="h-12 w-12 rounded-xl flex items-center justify-center mx-auto mb-4" style={{ background: "var(--surface)" }} />
+               <p className="text-[13px] font-medium" style={{ color: "var(--text-2)" }}>No conversation selected</p>
+               <p className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>Choose an athlete from the sidebar.</p>
+             </div>
+@@ -125,3 +112,107 @@
+     </div>
+   );
+ }
++
++function ThreadView({ athlete }: { athlete: AthleteWithProfile }) {
++  const [messages, setMessages] = useState<Message[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [body, setBody] = useState("");
++  const [sending, setSending] = useState(false);
++  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
++  const bottomRef = useRef<HTMLDivElement>(null);
++  const inputRef = useRef<HTMLTextAreaElement>(null);
++
++  const fetchThread = useCallback(() => {
++    api.messages.thread(athlete.id).then(setMessages).finally(() => setLoading(false));
++  }, [athlete.id]);
++
++  useEffect(() => {
++    setLoading(true);
++    setMessages([]);
++    fetchThread();
++    const supabase = createClient();
++    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
++  }, [athlete.id, fetchThread]);
++
++  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
++  useEffect(() => {
++    const t = setInterval(fetchThread, 10000);
++    return () => clearInterval(t);
++  }, [fetchThread]);
++
++  async function handleSend(e: React.FormEvent) {
++    e.preventDefault();
++    if (!body.trim() || sending) return;
++    setSending(true);
++    const text = body.trim();
++    setBody("");
++    try {
++      const msg = await api.messages.send({ recipient_id: athlete.id, body: text });
++      setMessages((p) => [...p, msg]);
++    } finally {
++      setSending(false);
++      inputRef.current?.focus();
++    }
++  }
++
++  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
++    if (e.key === "Enter" && !e.shiftKey) {
++      e.preventDefault();
++      void handleSend(e as unknown as React.FormEvent);
++    }
++  }
++
++  const initials = athlete.full_name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
++
++  return (
++    <>
++      <div className="h-14 shrink-0 flex items-center gap-3 px-5" style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)" }}>
++        <div className="h-8 w-8 rounded-md flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: "var(--surface-3)", color: "var(--text-2)", fontFamily: "'Barlow Condensed', sans-serif" }}>
++          {initials}
++        </div>
++        <div className="flex-1 min-w-0">
++          <p className="text-[13px] font-semibold" style={{ color: "var(--text-1)" }}>{athlete.full_name}</p>
++          <p className="text-[10px]" style={{ color: "var(--text-3)" }}>{athlete.email}</p>
++        </div>
++
++        <div className="flex items-center gap-2">
++          <Link
++            href={`/athletes/${athlete.id}`}
++            className="text-[11px] font-medium px-2.5 py-1.5 rounded transition-all duration-150"
++            style={{ background: "var(--surface-2)", color: "var(--text-2)", border: "1px solid var(--border)" }}
++          >
++            View profile
++          </Link>
++        </div>
++      </div>
++
++      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-0.5">
++        {loading ? <div className="space-y-3 pt-4" /> : null}
++        <div ref={bottomRef} />
++      </div>
++
++      <div className="px-5 py-4 shrink-0" style={{ background: "var(--surface)", borderTop: "1px solid var(--border)" }}>
++        <div className="flex items-end gap-2.5 rounded-lg px-3 py-2.5 transition-all duration-150" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
++          <textarea
++            ref={inputRef}
++            value={body}
++            onChange={(e) => setBody(e.target.value)}
++            onKeyDown={handleKeyDown}
++            placeholder={`Message ${athlete.full_name.split(" ")[0]}…`}
++            rows={1}
++            className="flex-1 resize-none text-[13px] outline-none"
++            style={{ background: "transparent", color: "var(--text-1)", minHeight: 24, maxHeight: 120, lineHeight: "1.5" }}
++          />
++          <button
++            onClick={(e) => void handleSend(e as unknown as React.FormEvent)}
++            disabled={!body.trim() || sending}
++            className="h-8 w-8 flex items-center justify-center rounded-md transition-all shrink-0 disabled:opacity-30"
++            style={{ background: "var(--accent)", color: "#0C0C0F" }}
++          >
++            Send
++          </button>
++        </div>
++      </div>
++    </>
++  );
++}
