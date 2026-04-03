@@ -9,10 +9,6 @@ import { todayRoutes } from './routes/today';
 import { stravaRoutes } from './routes/strava';
 import { templateRoutes } from './routes/templates';
 
-// Load env
-import { config } from 'dotenv';
-config();
-
 const app = Fastify({ logger: true });
 
 async function start() {
