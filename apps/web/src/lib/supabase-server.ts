@@ -13,10 +13,12 @@ export async function createServerSupabaseClient() {
         return cookieStore.get(name)?.value;
       },
       set(name: string, value: string, options: CookieOptions) {
-        cookieStore.set({ name, value, ...options });
+        // Server Components cannot set cookies — silently ignore so session
+        // refresh doesn't crash layouts. Middleware handles the actual refresh.
+        try { cookieStore.set({ name, value, ...options }); } catch {}
       },
       remove(name: string, options: CookieOptions) {
-        cookieStore.set({ name, value: "", ...options });
+        try { cookieStore.set({ name, value: "", ...options }); } catch {}
       },
     },
   });
