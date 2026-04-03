@@ -6,12 +6,13 @@ import { createClient } from "@/lib/supabase";
 
 export default function LoginPage(): React.JSX.Element {
   const router = useRouter();
-  const [email, setEmail]       = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError]       = useState<string | null>(null);
-  const [loading, setLoading]   = useState(false);
-  const [mode, setMode]         = useState<"login" | "signup">("login");
-  const [sent, setSent]         = useState(false);
+  const [email, setEmail]           = useState("");
+  const [password, setPassword]     = useState("");
+  const [error, setError]           = useState<string | null>(null);
+  const [loading, setLoading]       = useState(false);
+  const [mode, setMode]             = useState<"login" | "signup">("login");
+  const [sent, setSent]             = useState(false);
+  const [resetSent, setResetSent]   = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,6 +39,25 @@ export default function LoginPage(): React.JSX.Element {
     }
   }
 
+  async function handleForgotPassword() {
+    if (!email) {
+      setError("Enter your email address above first");
+      return;
+    }
+    setError(null);
+    setLoading(true);
+    const supabase = createClient();
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email);
+      if (error) throw error;
+      setResetSent(true);
+    } catch (err: any) {
+      setError(err.message ?? "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   if (sent) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
@@ -53,9 +73,9 @@ export default function LoginPage(): React.JSX.Element {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
             </svg>
           </div>
-          <p className="text-[15px] font-semibold mb-2" style={{ color: "var(--t1)" }}>Check your email</p>
-          <p className="text-[13px]" style={{ color: "var(--t3)" }}>
-            We sent a confirmation link to <span style={{ color: "var(--t2)" }}>{email}</span>. Click it to activate your account.
+          <p className="text-[15px] font-semibold mb-2" style={{ color: "var(--text-1)" }}>Check your email</p>
+          <p className="text-[13px]" style={{ color: "var(--text-3)" }}>
+            We sent a confirmation link to <span style={{ color: "var(--text-2)" }}>{email}</span>. Click it to activate your account.
           </p>
         </div>
       </div>
@@ -77,7 +97,7 @@ export default function LoginPage(): React.JSX.Element {
           </div>
           <span
             className="text-[20px] font-bold"
-            style={{ color: "var(--t1)", fontFamily: "'Barlow Condensed', sans-serif" }}
+            style={{ color: "var(--text-1)", fontFamily: "'Barlow Condensed', sans-serif" }}
           >
             CoachIQ
           </span>
@@ -90,17 +110,26 @@ export default function LoginPage(): React.JSX.Element {
         >
           <h1
             className="text-[18px] font-bold mb-1"
-            style={{ color: "var(--t1)", fontFamily: "'Barlow Condensed', sans-serif" }}
+            style={{ color: "var(--text-1)", fontFamily: "'Barlow Condensed', sans-serif" }}
           >
             {mode === "login" ? "Welcome back" : "Create your account"}
           </h1>
-          <p className="text-[12px] mb-7" style={{ color: "var(--t3)" }}>
+          <p className="text-[12px] mb-7" style={{ color: "var(--text-3)" }}>
             {mode === "login" ? "Sign in to your coaching dashboard" : "Get started with CoachIQ"}
           </p>
 
+          {resetSent && (
+            <div
+              className="text-[12px] px-3 py-2.5 rounded-md mb-4"
+              style={{ background: "var(--green-dim)", color: "var(--green)" }}
+            >
+              Password reset link sent — check your email.
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--t3)" }}>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-3)" }}>
                 Email
               </label>
               <input
@@ -113,7 +142,7 @@ export default function LoginPage(): React.JSX.Element {
                 style={{
                   background: "var(--surface-2)",
                   border: "1px solid var(--border)",
-                  color: "var(--t1)",
+                  color: "var(--text-1)",
                 }}
                 onFocus={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
                 onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
@@ -121,20 +150,20 @@ export default function LoginPage(): React.JSX.Element {
             </div>
 
             <div>
-              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--t3)" }}>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-3)" }}>
                 Password
               </label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                required
+                required={mode === "login"}
                 placeholder="••••••••"
                 className="w-full rounded-md px-3 py-2.5 text-[13px] outline-none transition-all"
                 style={{
                   background: "var(--surface-2)",
                   border: "1px solid var(--border)",
-                  color: "var(--t1)",
+                  color: "var(--text-1)",
                 }}
                 onFocus={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
                 onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
@@ -162,13 +191,29 @@ export default function LoginPage(): React.JSX.Element {
             </button>
           </form>
 
-          <div className="mt-5 text-center">
+          {mode === "login" && (
+            <div className="mt-3 text-center">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={loading}
+                className="text-[12px] transition-colors disabled:opacity-50"
+                style={{ color: "var(--text-3)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-2)")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-3)")}
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
+
+          <div className="mt-4 text-center">
             <button
-              onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(null); }}
+              onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(null); setResetSent(false); }}
               className="text-[12px] transition-colors"
-              style={{ color: "var(--t3)" }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--t2)")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--t3)")}
+              style={{ color: "var(--text-3)" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-2)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-3)")}
             >
               {mode === "login" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
             </button>

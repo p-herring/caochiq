@@ -1,7 +1,13 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { authenticate } from '../middleware/auth';
+import { parseOrReply } from '../lib/validation';
 import axios from 'axios';
+
+const athleteQuerySchema = z.object({
+  athlete_id: z.string().uuid(),
+});
 
 const STRAVA_CLIENT_ID     = process.env['STRAVA_CLIENT_ID']!;
 const STRAVA_CLIENT_SECRET = process.env['STRAVA_CLIENT_SECRET']!;
@@ -44,7 +50,9 @@ export async function stravaRoutes(app: FastifyInstance) {
 
   // GET /integrations/strava/connect?athlete_id=xxx  — generate OAuth URL
   app.get('/integrations/strava/connect', { preHandler: authenticate }, async (req, reply) => {
-    const { athlete_id } = req.query as { athlete_id?: string };
+    const parsedQuery = parseOrReply(athleteQuerySchema, req.query, reply);
+    if (!parsedQuery) return;
+    const { athlete_id } = parsedQuery;
 
     const params = new URLSearchParams({
       client_id:     STRAVA_CLIENT_ID,
@@ -67,7 +75,7 @@ export async function stravaRoutes(app: FastifyInstance) {
       code?: string; state?: string; error?: string;
     };
 
-    if (error || !code) {
+    if (error || !code || !athleteId) {
       return reply.redirect(`${FRONTEND_URL}/athletes?strava=error`);
     }
 
@@ -92,8 +100,7 @@ export async function stravaRoutes(app: FastifyInstance) {
       }, { onConflict: 'athlete_id' });
 
       return reply.redirect(`${FRONTEND_URL}/athletes/${athleteId}?strava=connected`);
-    } catch (e) {
-      console.error('Strava OAuth error:', e);
+    } catch {
       return reply.redirect(`${FRONTEND_URL}/athletes?strava=error`);
     }
   });
@@ -101,9 +108,9 @@ export async function stravaRoutes(app: FastifyInstance) {
   // DELETE /integrations/strava?athlete_id=xxx
   app.delete('/integrations/strava', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { athlete_id } = req.query as { athlete_id?: string };
-
-    if (!athlete_id) return reply.code(400).send({ success: false, error: { message: 'athlete_id required' } });
+    const parsedQuery = parseOrReply(athleteQuerySchema, req.query, reply);
+    if (!parsedQuery) return;
+    const { athlete_id } = parsedQuery;
 
     // Verify ownership
     const { data: athlete } = await supabase
@@ -117,9 +124,9 @@ export async function stravaRoutes(app: FastifyInstance) {
   // POST /integrations/strava/sync?athlete_id=xxx
   app.post('/integrations/strava/sync', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const { athlete_id } = req.query as { athlete_id?: string };
-
-    if (!athlete_id) return reply.code(400).send({ success: false, error: { message: 'athlete_id required' } });
+    const parsedQuery = parseOrReply(athleteQuerySchema, req.query, reply);
+    if (!parsedQuery) return;
+    const { athlete_id } = parsedQuery;
 
     const { data: athlete } = await supabase
       .from('athletes').select('id').eq('id', athlete_id).eq('coach_id', coachId).single();

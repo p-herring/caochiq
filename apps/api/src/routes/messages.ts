@@ -1,14 +1,29 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { authenticate } from '../middleware/auth';
+import { parseOrReply } from '../lib/validation';
+
+const querySchema = z.object({
+  with: z.string().uuid(),
+});
+
+const paramsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+const createMessageSchema = z.object({
+  recipient_id: z.string().uuid(),
+  body: z.string().min(1),
+});
 
 export async function messageRoutes(app: FastifyInstance) {
   // GET /messages?with=userId  — full thread
   app.get('/messages', { preHandler: authenticate }, async (req, reply) => {
     const userId = (req as any).userId;
-    const { with: withId } = req.query as { with?: string };
-
-    if (!withId) return reply.code(400).send({ success: false, error: { message: 'with param required' } });
+    const parsedQuery = parseOrReply(querySchema, req.query, reply);
+    if (!parsedQuery) return;
+    const withId = parsedQuery.with;
 
     // Resolve: withId may be an athlete row id — look up their auth user_id
     const { data: athleteRow } = await supabase
@@ -42,11 +57,9 @@ export async function messageRoutes(app: FastifyInstance) {
   // POST /messages
   app.post('/messages', { preHandler: authenticate }, async (req, reply) => {
     const senderId = (req as any).userId;
-    const { recipient_id, body } = req.body as { recipient_id: string; body: string };
-
-    if (!recipient_id || !body?.trim()) {
-      return reply.code(400).send({ success: false, error: { message: 'recipient_id and body required' } });
-    }
+    const parsedBody = parseOrReply(createMessageSchema, req.body, reply);
+    if (!parsedBody) return;
+    const { recipient_id, body } = parsedBody;
 
     // Resolve recipient: if athlete, use their user_id; otherwise send directly
     const { data: athlete } = await supabase
@@ -70,17 +83,19 @@ export async function messageRoutes(app: FastifyInstance) {
   // PATCH /messages/:id/read
   app.patch('/messages/:id/read', { preHandler: authenticate }, async (req, reply) => {
     const userId = (req as any).userId;
-    const { id } = req.params as { id: string };
+    const parsedParams = parseOrReply(paramsSchema, req.params, reply);
+    if (!parsedParams) return;
 
     const { data, error } = await supabase
       .from('messages')
       .update({ read: true })
-      .eq('id', id)
+      .eq('id', parsedParams.id)
       .eq('recipient_id', userId)
       .select()
       .single();
 
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
+    if (!data) return reply.code(404).send({ success: false, error: { message: 'Message not found' } });
     return reply.send({ success: true, data });
   });
 
