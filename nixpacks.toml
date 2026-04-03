@@ -1,0 +1,11 @@
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = [
+  "npm run build --workspace=packages/shared",
+  "npm run build --workspace=apps/api"
+]
+
+[start]
+cmd = "node apps/api/dist/index.js"
