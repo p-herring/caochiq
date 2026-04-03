@@ -142,12 +142,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ block_ids: blockIds }),
       }),
-    addBlock: (sessionId: string, data: Omit<WorkoutBlock, "id" | "session_id" | "position" | "created_at">) =>
+    addBlock: (sessionId: string, data: { type: WorkoutBlock["type"]; description: string; duration_min?: number | null; distance_m?: number | null; intensity?: string | null; reps?: number | null }) =>
       request<WorkoutBlock>(`/sessions/${sessionId}/blocks`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    updateBlock: (sessionId: string, blockId: string, data: Partial<Omit<WorkoutBlock, "id" | "session_id" | "position" | "created_at">>) =>
+    updateBlock: (sessionId: string, blockId: string, data: { type?: WorkoutBlock["type"]; description?: string; duration_min?: number | null; distance_m?: number | null; intensity?: string | null; reps?: number | null }) =>
       request<WorkoutBlock>(`/sessions/${sessionId}/blocks/${blockId}`, {
         method: "PATCH",
         body: JSON.stringify(data),
