@@ -47,6 +47,7 @@ export async function athleteRoutes(app: FastifyInstance) {
     if (!athletes?.length) return reply.send({ success: true, data: [] });
 
     const athleteIds = athletes.map((a: any) => a.id);
+    const athleteUserIds = athletes.map((a: any) => a.user_id).filter(Boolean);
     const since = new Date();
     since.setDate(since.getDate() - 7);
 
@@ -56,7 +57,9 @@ export async function athleteRoutes(app: FastifyInstance) {
       { data: recentSessions, error: recentSessionsError },
       { data: flags, error: flagsError },
     ] = await Promise.all([
-      supabase.from('athlete_profiles').select('*').in('athlete_id', athleteIds),
+      athleteUserIds.length
+        ? supabase.from('athlete_profiles').select('*').in('user_id', athleteUserIds)
+        : Promise.resolve({ data: [], error: null }),
       supabase.from('races').select('id, athlete_id, name, event_date, distance, priority').in('athlete_id', athleteIds),
       supabase.from('sessions').select('athlete_id, status').in('athlete_id', athleteIds).gte('date', dateOnly(since)),
       supabase.from('insights').select('athlete_id').in('athlete_id', athleteIds).eq('dismissed', false),
@@ -80,7 +83,7 @@ export async function athleteRoutes(app: FastifyInstance) {
 
       return {
         ...a,
-        profile: (profiles ?? []).find((p: any) => p.athlete_id === a.id) ?? null,
+        profile: (profiles ?? []).find((p: any) => p.user_id === a.user_id) ?? null,
         next_race: upcomingRaces[0] ?? null,
         compliance_7d: computeComplianceFromSessions(recentSessions ?? [], a.id),
         active_flags: flagCountMap.get(a.id) ?? 0,
@@ -150,7 +153,7 @@ export async function athleteRoutes(app: FastifyInstance) {
     if (error || !athlete) return reply.code(404).send({ success: false, error: { message: 'Not found' } });
 
     const [{ data: profileRows }, { data: races }, compliance7d, { count: flagCount }] = await Promise.all([
-      supabase.from('athlete_profiles').select('*').eq('athlete_id', parsedParams.id),
+      supabase.from('athlete_profiles').select('*').eq('user_id', athlete.user_id),
       supabase.from('races').select('*').eq('athlete_id', parsedParams.id),
       getCompliance7d(parsedParams.id),
       supabase.from('insights').select('*', { count: 'exact', head: true }).eq('athlete_id', parsedParams.id).eq('dismissed', false),
@@ -189,9 +192,12 @@ export async function athleteRoutes(app: FastifyInstance) {
 
     if (!athlete) return reply.code(403).send({ success: false, error: { message: 'Forbidden' } });
 
+    const { data: athleteForProfile } = await supabase
+      .from('athletes').select('user_id').eq('id', parsedParams.id).single();
+
     const { data, error } = await supabase
       .from('athlete_profiles')
-      .upsert({ athlete_id: parsedParams.id, ...parsedBody, updated_at: new Date().toISOString() })
+      .upsert({ user_id: athleteForProfile?.user_id, ...parsedBody, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
       .select()
       .single();
 
