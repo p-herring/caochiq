@@ -257,6 +257,8 @@ function AthleteRow({ athlete, last }: { athlete: AthleteWithProfile; last: bool
   );
 }
 
+type SearchResult = { id: string; full_name: string; email: string };
+
 function AddAthleteModal({
   onClose,
   onCreated,
@@ -264,12 +266,42 @@ function AddAthleteModal({
   onClose: () => void;
   onCreated: (a: AthleteWithProfile) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
+  // Debounced search
+  React.useEffect(() => {
+    if (query.trim().length < 2) { setResults([]); return; }
+    setSearching(true);
+    const t = setTimeout(() => {
+      api.athletes.search(query)
+        .then(setResults)
+        .catch(() => setResults([]))
+        .finally(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  async function handleAssign(r: SearchResult) {
+    setError(null);
+    setSaving(true);
+    try {
+      const athlete = await api.athletes.assign(r.id);
+      onCreated({ ...athlete, compliance_7d: 0, active_flags: 0, next_race: null });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add athlete");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSaving(true);
@@ -283,6 +315,9 @@ function AddAthleteModal({
     }
   }
 
+  const initials = (name: string) =>
+    name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -290,15 +325,16 @@ function AddAthleteModal({
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="w-full max-w-sm rounded-xl p-6 shadow-2xl"
+        className="w-full max-w-sm rounded-xl shadow-2xl overflow-hidden"
         style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
       >
-        <div className="flex items-center justify-between mb-5">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-4">
           <h2
             className="text-[18px] font-bold leading-none tracking-tight"
             style={{ color: "var(--text-1)", fontFamily: "'Barlow Condensed', sans-serif" }}
           >
-            New Athlete
+            Add Athlete
           </h2>
           <button
             onClick={onClose}
@@ -313,40 +349,68 @@ function AddAthleteModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-[0.1em] mb-1.5" style={{ color: "var(--text-3)" }}>
-              Full Name
-            </label>
+        <div className="px-5 pb-5 space-y-3">
+          {/* Search */}
+          <div className="relative">
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none"
+              fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"
+              style={{ color: "var(--text-3)" }}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
             <input
               type="text"
-              required
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Alex Johnson"
-              className="w-full px-3 py-2 text-[13px] rounded outline-none transition-all"
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setShowCreate(false); setError(null); }}
+              placeholder="Search by name or email…"
+              className="w-full pl-8 pr-4 py-2 text-[13px] rounded outline-none transition-all"
               style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-1)" }}
               onFocus={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
               onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
               autoFocus
             />
           </div>
-          <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-[0.1em] mb-1.5" style={{ color: "var(--text-3)" }}>
-              Email
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="alex@example.com"
-              className="w-full px-3 py-2 text-[13px] rounded outline-none transition-all"
-              style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-1)" }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
-              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-            />
-          </div>
+
+          {/* Search results */}
+          {query.trim().length >= 2 && (
+            <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+              {searching ? (
+                <div className="px-4 py-3 text-[12px]" style={{ color: "var(--text-3)" }}>Searching…</div>
+              ) : results.length === 0 ? (
+                <div className="px-4 py-3 text-[12px]" style={{ color: "var(--text-3)" }}>No unassigned athletes found.</div>
+              ) : (
+                results.map((r, i) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center gap-3 px-3 py-2.5"
+                    style={{ borderBottom: i < results.length - 1 ? "1px solid var(--border)" : "none" }}
+                  >
+                    <div
+                      className="h-7 w-7 rounded shrink-0 flex items-center justify-center text-[10px] font-bold"
+                      style={{ background: "var(--surface-3)", color: "var(--text-2)", fontFamily: "'Barlow Condensed', sans-serif" }}
+                    >
+                      {initials(r.full_name)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-semibold truncate" style={{ color: "var(--text-1)" }}>{r.full_name}</p>
+                      <p className="text-[11px] truncate" style={{ color: "var(--text-3)" }}>{r.email}</p>
+                    </div>
+                    <button
+                      onClick={() => handleAssign(r)}
+                      disabled={saving}
+                      className="text-[11px] font-semibold px-2.5 py-1 rounded transition-all disabled:opacity-50 shrink-0"
+                      style={{ background: "var(--accent)", color: "#fff" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+                      onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                    >
+                      Add
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
 
           {error && (
             <p className="text-[11px] px-3 py-2 rounded" style={{ background: "var(--red-dim)", color: "var(--red)" }}>
@@ -354,29 +418,83 @@ function AddAthleteModal({
             </p>
           )}
 
-          <div className="flex gap-2 pt-1">
+          {/* Divider + create new */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.1em]" style={{ color: "var(--text-3)" }}>or</span>
+            <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+          </div>
+
+          {!showCreate ? (
             <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2 rounded text-[12px] font-semibold transition-all"
+              onClick={() => { setShowCreate(true); setFullName(query.trim()); }}
+              className="w-full py-2 rounded text-[12px] font-semibold transition-all"
               style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-2)" }}
               onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
               onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
             >
-              Cancel
+              Create new athlete
             </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 py-2 rounded text-[12px] font-semibold transition-all disabled:opacity-50"
-              style={{ background: "var(--accent)", color: "#fff" }}
-              onMouseEnter={(e) => !saving && (e.currentTarget.style.opacity = "0.85")}
-              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-            >
-              {saving ? "Creating…" : "Create"}
-            </button>
-          </div>
-        </form>
+          ) : (
+            <form onSubmit={handleCreate} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-[0.1em] mb-1.5" style={{ color: "var(--text-3)" }}>
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Alex Johnson"
+                  className="w-full px-3 py-2 text-[13px] rounded outline-none transition-all"
+                  style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-1)" }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-[0.1em] mb-1.5" style={{ color: "var(--text-3)" }}>
+                  Email
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="alex@example.com"
+                  className="w-full px-3 py-2 text-[13px] rounded outline-none transition-all"
+                  style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-1)" }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreate(false)}
+                  className="flex-1 py-2 rounded text-[12px] font-semibold transition-all"
+                  style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-2)" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 py-2 rounded text-[12px] font-semibold transition-all disabled:opacity-50"
+                  style={{ background: "var(--accent)", color: "#fff" }}
+                  onMouseEnter={(e) => !saving && (e.currentTarget.style.opacity = "0.85")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                >
+                  {saving ? "Creating…" : "Create"}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

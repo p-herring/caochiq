@@ -61,6 +61,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+    search: (q: string) =>
+      request<{ id: string; full_name: string; email: string }[]>(`/athletes/search?q=${encodeURIComponent(q)}`),
+    assign: (id: string) =>
+      request<AthleteWithProfile>(`/athletes/${id}/assign`, { method: "PATCH" }),
     get: (id: string) => request<AthleteWithProfile>(`/athletes/${id}`),
     updateProfile: (id: string, data: UpdateAthleteProfile) =>
       request(`/athletes/${id}/profile`, {

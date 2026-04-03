@@ -44,6 +44,49 @@ export async function athleteRoutes(app: FastifyInstance) {
     return reply.send({ success: true, data: enriched });
   });
 
+  // GET /athletes/search — unassigned athletes matching a query (coach_id IS NULL)
+  app.get('/athletes/search', { preHandler: authenticate }, async (req, reply) => {
+    const { q } = req.query as { q?: string };
+    if (!q || q.trim().length < 1) return reply.send({ success: true, data: [] });
+
+    const term = `%${q.trim()}%`;
+    const { data, error } = await supabase
+      .from('athletes')
+      .select('id, full_name, email')
+      .is('coach_id', null)
+      .or(`full_name.ilike.${term},email.ilike.${term}`)
+      .limit(10);
+
+    if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
+    return reply.send({ success: true, data: data ?? [] });
+  });
+
+  // PATCH /athletes/:id/assign — claim an unassigned athlete
+  app.patch('/athletes/:id/assign', { preHandler: authenticate }, async (req, reply) => {
+    const coachId = (req as any).userId;
+    const { id } = req.params as { id: string };
+
+    // Only allow claiming athletes with no coach
+    const { data: existing } = await supabase
+      .from('athletes')
+      .select('id, coach_id')
+      .eq('id', id)
+      .single();
+
+    if (!existing) return reply.code(404).send({ success: false, error: { message: 'Athlete not found' } });
+    if (existing.coach_id) return reply.code(409).send({ success: false, error: { message: 'Athlete already has a coach' } });
+
+    const { data, error } = await supabase
+      .from('athletes')
+      .update({ coach_id: coachId })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
+    return reply.send({ success: true, data });
+  });
+
   // GET /athletes/:id
   app.get('/athletes/:id', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
