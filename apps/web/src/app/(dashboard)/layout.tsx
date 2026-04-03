@@ -9,6 +9,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   if (!user) redirect("/login");
 
+  // Athletes have accounts but cannot access the coach dashboard
+  if (user.user_metadata?.role === 'athlete') redirect("/login");
+
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--bg)" }}>
       <Sidebar />

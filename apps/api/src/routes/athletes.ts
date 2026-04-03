@@ -245,14 +245,34 @@ export async function athleteRoutes(app: FastifyInstance) {
     return reply.send({ success: true, data: data ?? [] });
   });
 
-  // POST /athletes
+  // POST /athletes — creates athlete record + Supabase auth user (invite email sent)
   app.post('/athletes', { preHandler: authenticate }, async (req, reply) => {
     const coachId = (req as any).userId;
-    const body = req.body as any;
+    const { full_name, email, ...rest } = req.body as any;
+
+    // Create auth user and send invite email
+    const { data: authData, error: authError } = await supabase.auth.admin.inviteUserByEmail(email, {
+      data: { role: 'athlete', full_name },
+    });
+
+    let userId: string | null = null;
+
+    if (authError) {
+      // If email already exists in auth, find and link the existing user
+      if (authError.code === 'email_exists' || authError.message?.toLowerCase().includes('already')) {
+        const { data: list } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+        const existing = list?.users.find((u) => u.email === email);
+        if (existing) userId = existing.id;
+      } else {
+        return reply.code(500).send({ success: false, error: { message: authError.message } });
+      }
+    } else {
+      userId = authData.user.id;
+    }
 
     const { data, error } = await supabase
       .from('athletes')
-      .insert({ ...body, coach_id: coachId })
+      .insert({ ...rest, full_name, email, coach_id: coachId, user_id: userId })
       .select()
       .single();
 
