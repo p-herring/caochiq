@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg:          #0C0C0F;
+    --surface:     #13131A;
+    --surface-2:   #1A1A22;
+    --surface-3:   #21212C;
+    --border:      #1E1E2A;
+    --border-2:    #2A2A38;
+    --accent:      #F0B429;
+    --accent-dim:  rgba(240, 180, 41, 0.12);
+    --accent-glow: rgba(240, 180, 41, 0.25);
+    --text-1:      #E8E8F0;
+    --text-2:      #7878A0;
+    --text-3:      #40405A;
+    --green:       #22C55E;
+    --green-dim:   rgba(34, 197, 94, 0.12);
+    --red:         #F05252;
+    --red-dim:     rgba(240, 82, 82, 0.12);
+    --amber:       #F59E0B;
+    --amber-dim:   rgba(245, 158, 11, 0.12);
+    --blue:        #3B82F6;
+    --blue-dim:    rgba(59, 130, 246, 0.12);
+  }
+
+  *, *::before, *::after {
+    border-color: var(--border);
+  }
+
+  html {
+    font-family: 'Barlow', system-ui, sans-serif;
+    background-color: var(--bg);
+    color: var(--text-1);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--bg);
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+  ::selection { background: var(--accent-dim); color: var(--text-1); }
+}
