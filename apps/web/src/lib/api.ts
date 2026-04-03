@@ -56,6 +56,11 @@ async function request<T>(
 export const api = {
   athletes: {
     list: () => request<AthleteWithProfile[]>("/athletes"),
+    create: (data: { full_name: string; email: string }) =>
+      request<AthleteWithProfile>("/athletes", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     get: (id: string) => request<AthleteWithProfile>(`/athletes/${id}`),
     updateProfile: (id: string, data: UpdateAthleteProfile) =>
       request(`/athletes/${id}/profile`, {

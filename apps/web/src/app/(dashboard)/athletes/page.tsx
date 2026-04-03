@@ -21,6 +21,7 @@ export default function AthletesPage(): React.JSX.Element {
   const [athletes, setAthletes] = useState<AthleteWithProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
     api.athletes.list().then(setAthletes).finally(() => setLoading(false));
@@ -82,8 +83,32 @@ export default function AthletesPage(): React.JSX.Element {
               {filtered.length}
             </span>
           )}
+
+          {/* Add Athlete */}
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded text-[12px] font-semibold transition-all duration-150"
+            style={{ background: "var(--accent)", color: "#fff" }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Add Athlete
+          </button>
         </div>
       </div>
+
+      {showModal && (
+        <AddAthleteModal
+          onClose={() => setShowModal(false)}
+          onCreated={(a) => {
+            setAthletes((prev) => [a, ...prev]);
+            setShowModal(false);
+          }}
+        />
+      )}
 
       {/* Table */}
       {loading ? (
@@ -232,6 +257,131 @@ function AthleteRow({ athlete, last }: { athlete: AthleteWithProfile; last: bool
   );
 }
 
+function AddAthleteModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (a: AthleteWithProfile) => void;
+}) {
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSaving(true);
+    try {
+      const athlete = await api.athletes.create({ full_name: fullName.trim(), email: email.trim() });
+      onCreated({ ...athlete, compliance_7d: 0, active_flags: 0, next_race: null });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create athlete");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.5)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="w-full max-w-sm rounded-xl p-6 shadow-2xl"
+        style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2
+            className="text-[18px] font-bold leading-none tracking-tight"
+            style={{ color: "var(--text-1)", fontFamily: "'Barlow Condensed', sans-serif" }}
+          >
+            New Athlete
+          </h2>
+          <button
+            onClick={onClose}
+            className="h-7 w-7 flex items-center justify-center rounded transition-all"
+            style={{ color: "var(--text-3)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-[0.1em] mb-1.5" style={{ color: "var(--text-3)" }}>
+              Full Name
+            </label>
+            <input
+              type="text"
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Alex Johnson"
+              className="w-full px-3 py-2 text-[13px] rounded outline-none transition-all"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-1)" }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-[0.1em] mb-1.5" style={{ color: "var(--text-3)" }}>
+              Email
+            </label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="alex@example.com"
+              className="w-full px-3 py-2 text-[13px] rounded outline-none transition-all"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-1)" }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+            />
+          </div>
+
+          {error && (
+            <p className="text-[11px] px-3 py-2 rounded" style={{ background: "var(--red-dim)", color: "var(--red)" }}>
+              {error}
+            </p>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2 rounded text-[12px] font-semibold transition-all"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-2)" }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--border-2)")}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 py-2 rounded text-[12px] font-semibold transition-all disabled:opacity-50"
+              style={{ background: "var(--accent)", color: "#fff" }}
+              onMouseEnter={(e) => !saving && (e.currentTarget.style.opacity = "0.85")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            >
+              {saving ? "Creating…" : "Create"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function LoadingSkeleton() {
   return (
     <div className="rounded-lg overflow-hidden" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
@@ -269,7 +419,7 @@ function EmptyState() {
         </svg>
       </div>
       <p className="text-[13px] font-semibold" style={{ color: "var(--text-2)" }}>No athletes yet</p>
-      <p className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>Create an athlete in Supabase and set their coach_id.</p>
+      <p className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>Click "Add Athlete" to get started.</p>
     </div>
   );
 }
