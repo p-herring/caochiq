@@ -16,6 +16,8 @@ import type {
   CreateTrainingPlan,
   UpdateAthleteProfile,
   CreateMessage,
+  WorkoutTemplateWithBlocks,
+  CreateWorkoutTemplate,
 } from "@coaching/shared";
 
 const API_BASE = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
@@ -33,14 +35,19 @@ async function request<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = await getToken();
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...options.headers,
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...options.headers,
+      },
+    });
+  } catch {
+    throw new Error(`Cannot reach API at ${API_BASE}. Check that the server is running and NEXT_PUBLIC_API_URL is set correctly.`);
+  }
 
   const json = (await res.json()) as { success: boolean; data?: T; error?: unknown };
 
@@ -149,6 +156,25 @@ export const api = {
     markRead: (id: string) =>
       request<Message>(`/messages/${id}/read`, { method: "PATCH" }),
     unreadCount: () => request<{ count: number }>("/messages/unread-count"),
+  },
+
+  templates: {
+    list: () =>
+      request<{ own: WorkoutTemplateWithBlocks[]; shared: WorkoutTemplateWithBlocks[] }>("/templates"),
+    create: (data: CreateWorkoutTemplate) =>
+      request<WorkoutTemplateWithBlocks>("/templates", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: string, data: Partial<CreateWorkoutTemplate>) =>
+      request<WorkoutTemplateWithBlocks>(`/templates/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request<{ deleted: boolean }>(`/templates/${id}`, { method: "DELETE" }),
+    copy: (id: string) =>
+      request<WorkoutTemplateWithBlocks>(`/templates/${id}/copy`, { method: "POST" }),
   },
 
   today: {

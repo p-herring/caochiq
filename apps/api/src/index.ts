@@ -7,6 +7,7 @@ import { messageRoutes } from './routes/messages';
 import { insightRoutes } from './routes/insights';
 import { todayRoutes } from './routes/today';
 import { stravaRoutes } from './routes/strava';
+import { templateRoutes } from './routes/templates';
 
 // Load env
 import { config } from 'dotenv';
@@ -36,6 +37,7 @@ async function start() {
     await api.register(insightRoutes);
     await api.register(todayRoutes);
     await api.register(stravaRoutes);
+    await api.register(templateRoutes);
   }, { prefix: '/api/v1' });
 
   const port = Number(process.env['PORT'] ?? 3001);

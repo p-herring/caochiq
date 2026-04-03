@@ -245,6 +245,48 @@ export interface TodayResponse {
   unread_messages: number;
 }
 
+// ─── Workout Templates ────────────────────────────────────────────────────────
+
+export interface WorkoutTemplate {
+  id: string;
+  coach_id: string;
+  name: string;
+  description: string | null;
+  type: SessionType;
+  duration_min: number | null;
+  tss: number | null;
+  is_shared: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TemplateBlock {
+  id: string;
+  template_id: string;
+  position: number;
+  type: 'warmup' | 'interval' | 'steady' | 'cooldown' | 'rest' | 'note';
+  description: string;
+  duration_min: number | null;
+  distance_m: number | null;
+  intensity: string | null;
+  reps: number | null;
+  created_at: string;
+}
+
+export interface WorkoutTemplateWithBlocks extends WorkoutTemplate {
+  blocks: TemplateBlock[];
+}
+
+export interface CreateWorkoutTemplate {
+  name: string;
+  description?: string | null;
+  type: SessionType;
+  duration_min?: number | null;
+  tss?: number | null;
+  is_shared?: boolean;
+  blocks: Omit<TemplateBlock, 'id' | 'template_id' | 'position' | 'created_at'>[];
+}
+
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 export interface ApiSuccess<T> {
