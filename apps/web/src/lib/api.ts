@@ -51,7 +51,12 @@ async function request<T>(
     throw new Error(`Cannot reach API at ${API_BASE}. Check that the server is running and NEXT_PUBLIC_API_URL is set correctly.`);
   }
 
-  const json = (await res.json()) as { success: boolean; data?: T; error?: unknown };
+  let json: { success: boolean; data?: T; error?: unknown };
+  try {
+    json = await res.json();
+  } catch {
+    throw new Error(`API returned a non-JSON response (HTTP ${res.status}). Check that NEXT_PUBLIC_API_URL is correct: ${API_BASE}`);
+  }
 
   if (!json.success) {
     throw new Error(JSON.stringify(json.error));
