@@ -5,6 +5,17 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import type { AthleteWithProfile, TrainingPlan } from "@coaching/shared";
 import WeekPlanner from "@/components/planner/WeekPlanner";
+import PlanOverview from "@/components/planner/PlanOverview";
+
+type PlannerView = "week" | "plan";
+
+function getMondayOf(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
 
 export default function PlannerPage({ params }: { params: { id: string } }): React.JSX.Element {
   const { id } = params;
@@ -12,6 +23,8 @@ export default function PlannerPage({ params }: { params: { id: string } }): Rea
   const [activePlan, setActivePlan] = useState<TrainingPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [view, setView] = useState<PlannerView>("week");
+  const [weekOverride, setWeekOverride] = useState<Date | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -105,11 +118,30 @@ export default function PlannerPage({ params }: { params: { id: string } }): Rea
         <div className="flex items-center gap-3">
           {activePlan && (
             <div className="flex items-center gap-1.5">
-              <span
-                className="h-1.5 w-1.5 rounded-full"
-                style={{ background: "var(--green)" }}
-              />
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--green)" }} />
               <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Plan active</span>
+            </div>
+          )}
+
+          {/* View toggle */}
+          {activePlan && (
+            <div
+              className="flex rounded-md overflow-hidden"
+              style={{ border: "1px solid var(--border)", background: "var(--surface)" }}
+            >
+              {(["week", "plan"] as PlannerView[]).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className="px-3 py-1.5 text-[11px] font-semibold transition-all capitalize"
+                  style={{
+                    background: view === v ? "var(--surface-3)" : "transparent",
+                    color: view === v ? "var(--text-1)" : "var(--text-3)",
+                  }}
+                >
+                  {v === "plan" ? "Overview" : "Week"}
+                </button>
+              ))}
             </div>
           )}
 
@@ -142,8 +174,22 @@ export default function PlannerPage({ params }: { params: { id: string } }): Rea
           onCreate={handleCreatePlan}
           creating={creating}
         />
+      ) : view === "plan" ? (
+        <PlanOverview
+          planId={activePlan.id}
+          planStartDate={activePlan.start_date}
+          onOpenWeek={(weekStart) => {
+            setWeekOverride(getMondayOf(new Date(weekStart + "T00:00:00")));
+            setView("week");
+          }}
+        />
       ) : (
-        <WeekPlanner athleteId={id} planId={activePlan.id} />
+        <WeekPlanner
+          athleteId={id}
+          planId={activePlan.id}
+          initialWeek={weekOverride ?? undefined}
+          onWeekChange={() => setWeekOverride(null)}
+        />
       )}
     </div>
   );

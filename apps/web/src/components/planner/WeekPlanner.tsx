@@ -14,10 +14,15 @@ const SESSION_COLORS: Record<SessionType, { bar: string; bg: string; label: stri
   other:    { bar: "var(--t2)",     bg: "var(--surface-3)",  label: "Other" },
 };
 
-interface Props { athleteId: string; planId: string; }
+interface Props {
+  athleteId: string;
+  planId: string;
+  initialWeek?: Date;
+  onWeekChange?: () => void;
+}
 
-export default function WeekPlanner({ athleteId, planId }: Props) {
-  const [weekStart, setWeekStart] = useState(() => getMondayOf(new Date()));
+export default function WeekPlanner({ athleteId, planId, initialWeek, onWeekChange }: Props) {
+  const [weekStart, setWeekStart] = useState(() => initialWeek ?? getMondayOf(new Date()));
   const [sessions, setSessions]   = useState<SessionWithBlocks[]>([]);
   const [loading, setLoading]     = useState(true);
   const [adding, setAdding]       = useState<string | null>(null); // date being added to
@@ -48,12 +53,14 @@ export default function WeekPlanner({ athleteId, planId }: Props) {
     const d = new Date(weekStart);
     d.setDate(d.getDate() - 7);
     setWeekStart(d);
+    onWeekChange?.();
   }
 
   function nextWeek() {
     const d = new Date(weekStart);
     d.setDate(d.getDate() + 7);
     setWeekStart(d);
+    onWeekChange?.();
   }
 
   async function handleAddSession(date: string, type: SessionType, title: string) {

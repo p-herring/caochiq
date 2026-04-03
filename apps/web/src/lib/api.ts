@@ -18,6 +18,8 @@ import type {
   CreateMessage,
   WorkoutTemplateWithBlocks,
   CreateWorkoutTemplate,
+  PlanWeekSummary,
+  PlanPhase,
 } from "@coaching/shared";
 
 const API_BASE = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
@@ -104,6 +106,10 @@ export const api = {
       }),
     delete: (id: string) =>
       request<{ deleted: boolean }>(`/plans/${id}`, { method: "DELETE" }),
+    getWeeks: (planId: string) =>
+      request<PlanWeekSummary[]>(`/plans/${planId}/weeks`),
+    updateWeek: (planId: string, weekNumber: number, data: { phase?: PlanPhase | null; tss_target?: number | null; hours_target?: number | null; notes?: string | null }) =>
+      request(`/plans/${planId}/weeks/${weekNumber}`, { method: "PUT", body: JSON.stringify(data) }),
   },
 
   sessions: {

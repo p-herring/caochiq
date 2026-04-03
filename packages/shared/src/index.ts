@@ -245,6 +245,29 @@ export interface TodayResponse {
   unread_messages: number;
 }
 
+// ─── Plan Weeks ───────────────────────────────────────────────────────────────
+
+export type PlanPhase = 'base' | 'build' | 'peak' | 'taper' | 'race' | 'recovery';
+
+export interface PlanWeek {
+  id: string | null;
+  plan_id: string;
+  week_number: number;
+  week_start: string;
+  week_end: string;
+  phase: PlanPhase | null;
+  tss_target: number | null;
+  hours_target: number | null;
+  notes: string | null;
+}
+
+export interface PlanWeekSummary extends PlanWeek {
+  session_count: number;
+  session_types: { type: SessionType; count: number }[];
+  actual_tss: number;
+  actual_hours: number;
+}
+
 // ─── Workout Templates ────────────────────────────────────────────────────────
 
 export interface WorkoutTemplate {
