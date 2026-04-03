@@ -86,7 +86,7 @@ export async function templateRoutes(app: FastifyInstance) {
 
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
 
-    if (blocks.length) {
+    if (blocks && blocks.length > 0) {
       const rows = blocks.map((b, i) => ({ ...b, template_id: tmpl.id, position: i }));
       await supabase.from('template_blocks').insert(rows);
     }
@@ -115,7 +115,7 @@ export async function templateRoutes(app: FastifyInstance) {
       .single();
     if (!existing) return reply.code(403).send({ success: false, error: { message: 'Forbidden' } });
 
-    const { blocks, ...rest } = parsedBody;
+    const { blocks: incomingBlocks, ...rest } = parsedBody;
 
     const { error } = await supabase
       .from('workout_templates')
@@ -124,10 +124,10 @@ export async function templateRoutes(app: FastifyInstance) {
 
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
 
-    if (blocks !== undefined) {
+    if (incomingBlocks !== undefined) {
       await supabase.from('template_blocks').delete().eq('template_id', parsedParams.id);
-      if (blocks.length) {
-        const rows = blocks.map((b, i) => ({ ...b, template_id: parsedParams.id, position: i }));
+      if (incomingBlocks.length > 0) {
+        const rows = incomingBlocks.map((b, i) => ({ ...b, template_id: parsedParams.id, position: i }));
         await supabase.from('template_blocks').insert(rows);
       }
     }
