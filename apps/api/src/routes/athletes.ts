@@ -9,15 +9,23 @@ export async function athleteRoutes(app: FastifyInstance) {
 
     const { data: athletes, error } = await supabase
       .from('athletes')
-      .select(`
-        *,
-        profile:athlete_profiles(*),
-        races(id, name, event_date, distance, priority)
-      `)
+      .select('*')
       .eq('coach_id', coachId)
       .order('full_name');
 
     if (error) return reply.code(500).send({ success: false, error: { message: error.message } });
+    if (!athletes.length) return reply.send({ success: true, data: [] });
+
+    const athleteIds = athletes.map((a: any) => a.id);
+
+    // Fetch related data in parallel via separate queries (avoids schema cache relationship issues)
+    const [
+      { data: profiles },
+      { data: races },
+    ] = await Promise.all([
+      supabase.from('athlete_profiles').select('*').in('athlete_id', athleteIds),
+      supabase.from('races').select('id, athlete_id, name, event_date, distance, priority').in('athlete_id', athleteIds),
+    ]);
 
     // Enrich with compliance + flags
     const enriched = await Promise.all(athletes.map(async (a: any) => {
@@ -28,13 +36,14 @@ export async function athleteRoutes(app: FastifyInstance) {
         .eq('athlete_id', a.id)
         .eq('dismissed', false);
 
-      const upcomingRaces = (a.races || [])
+      const athleteRaces = (races ?? []).filter((r: any) => r.athlete_id === a.id);
+      const upcomingRaces = athleteRaces
         .filter((r: any) => new Date(r.event_date) >= new Date())
         .sort((a: any, b: any) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime());
 
       return {
         ...a,
-        profile: a.profile ?? null,
+        profile: (profiles ?? []).find((p: any) => p.athlete_id === a.id) ?? null,
         next_race: upcomingRaces[0] ?? null,
         compliance_7d: compliance7d,
         active_flags: flagCount ?? 0,
@@ -94,21 +103,21 @@ export async function athleteRoutes(app: FastifyInstance) {
 
     const { data: athlete, error } = await supabase
       .from('athletes')
-      .select(`*, profile:athlete_profiles(*), races(*)`)
+      .select('*')
       .eq('id', id)
       .eq('coach_id', coachId)
       .single();
 
     if (error || !athlete) return reply.code(404).send({ success: false, error: { message: 'Not found' } });
 
-    const compliance7d = await getCompliance7d(id);
-    const { count: flagCount } = await supabase
-      .from('insights')
-      .select('*', { count: 'exact', head: true })
-      .eq('athlete_id', id)
-      .eq('dismissed', false);
+    const [{ data: profileRows }, { data: races }, compliance7d, { count: flagCount }] = await Promise.all([
+      supabase.from('athlete_profiles').select('*').eq('athlete_id', id),
+      supabase.from('races').select('*').eq('athlete_id', id),
+      getCompliance7d(id),
+      supabase.from('insights').select('*', { count: 'exact', head: true }).eq('athlete_id', id).eq('dismissed', false),
+    ]);
 
-    const upcomingRaces = (athlete.races || [])
+    const upcomingRaces = (races || [])
       .filter((r: any) => new Date(r.event_date) >= new Date())
       .sort((a: any, b: any) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime());
 
@@ -116,6 +125,8 @@ export async function athleteRoutes(app: FastifyInstance) {
       success: true,
       data: {
         ...athlete,
+        profile: profileRows?.[0] ?? null,
+        races: races ?? [],
         next_race: upcomingRaces[0] ?? null,
         compliance_7d: compliance7d,
         active_flags: flagCount ?? 0,
